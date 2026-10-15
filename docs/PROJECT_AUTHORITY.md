@@ -38,3 +38,11 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Danh sách nhân sự không tự chọn mặc định; lựa chọn được tô nổi, in đậm, font lớn hơn 20%; nhấn Enter xác nhận, không thêm hộp thoại xác nhận sau đó. Click chọn và Enter, hoặc phím mũi tên chọn rồi Enter.
 - Sau khi vòng giao diện kết thúc và cửa sổ sẵn sàng, app tự kích hoạt và đưa dấu nhập liệu về Tote. Không tự chạy lại thao tác không idempotent; nếu WMS chưa trở về quét Tote cần xác minh thủ công.
 - Kiểm thử CI chỉ có giá trị biên dịch, smoke dữ liệu và giả lập. Chưa được xem như bằng chứng máy in vật lý hoặc WMS production PASS.
+
+## v1.3.0 — Điều tra lịch sử trống sau khi in thành công (15/10/2026)
+- Owner gửi ZIP log 21:00, v1.2.0: `SAVE_START`, `SAVE_WMS_INFO`, `SAVE_PRINT_READY`, `SAVE_LABEL_REQUEST`, `SAVE_FINISH_CONFIRMED`, `SAVE_FINAL` đều `DONE` và `JOB_UI_COMPLETE DONE`. XLSX vẫn trống theo báo cáo Owner; file `history.jsonl` thực tế không nằm trong ZIP nên chưa chứng minh được định dạng ngày đang lưu trên máy.
+- Lỗi xác định trong source: `DateTime.ToString("dd/MM/yyyy")` **không dùng dấu / cố định** (nó là ký hiệu DateSeparator theo Windows Culture), trong khi lọc lịch sử lại dùng `TryParseExact` với InvariantCulture. Ngày kiểu `15-10-2026` hoặc `15.10.2026` bị ẩn khỏi bảng và XLSX dù file history được ghi thành công.
+- Từ v1.3, ghi ngày cố định dùng dấu phân cách literal với `CultureInfo.InvariantCulture`. Khi đọc, chấp nhận ngày cũ dùng `/`, `-`, `.` (và ISO yyyy-MM-dd), chuẩn hóa **trong bộ nhớ**, không sửa/xóa bản ghi cũ, vẫn gộp AttemptId như trước.
+- Ở START/FINAL, sau khi ghi `history.jsonl` phải kiểm tra **đọc ngược lại qua cùng logic như bảng/Excel**. Log `READBACK_START/FINAL DONE/ERROR`, `DISPLAY_COUNTS TODAY=...;READ_ERROR=...`, `HISTORY_XLSX ROWS=...`, không ghi PII/SO/DO/Tote vào log.
+- Kiểm thử thêm tình huống Windows Culture dấu chấm và dữ liệu ngày lịch sử cũ dấu chấm/gạch; xuất XLSX chọn ngày cũ phải có số dòng đúng.
+- Vẫn chưa thể xác nhận in nhãn vật lý / thao tác WMS bằng GitHub Actions; Owner test thực tế sau phát hành.

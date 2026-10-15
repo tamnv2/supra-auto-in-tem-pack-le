@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Globalization;
 using ClosedXML.Excel;
 
 namespace SupraAutoPackLe;
@@ -21,6 +22,17 @@ internal sealed class LocalStore
     private string HistoryPath => Path.Combine(Root,"history.jsonl");
     private string Logs => Path.Combine(Root,"logs");
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
+    private static readonly string[] AcceptedHistoryDates =
+    [
+        "dd'/'MM'/'yyyy", "dd'-'MM'-'yyyy", "dd'.'MM'.'yyyy",
+        "yyyy'-'MM'-'dd", "yyyy'/'MM'/'dd", "yyyy'.'MM'.'dd"
+    ];
+    // '/' in a .NET date format is a locale-dependent separator unless quoted.
+    public static string FormatHistoryDate(DateTime date) =>
+        date.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture);
+    public static bool TryParseHistoryDate(string? value, out DateTime date) =>
+        DateTime.TryParseExact(value, AcceptedHistoryDates, CultureInfo.InvariantCulture,
+            DateTimeStyles.None, out date);
     private bool _historyReadWarning;
     public bool HistoryReadFailed { get; private set; }
     public LocalStore(string? root=null) { Root=root ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SupraAutoPackLe"); Directory.CreateDirectory(Root); Directory.CreateDirectory(Logs); }
@@ -48,6 +60,7 @@ internal sealed class LocalStore
         var byAttempt=new Dictionary<string,int>(StringComparer.Ordinal);
         HistoryReadFailed=false;
         var invalid=0;
+        var invalidDates=0;
         try
         {
             if(File.Exists(HistoryPath))
@@ -59,6 +72,15 @@ internal sealed class LocalStore
                     {
                         var r=JsonSerializer.Deserialize<HistoryRow>(line);
                         if(r==null){invalid++;continue;}
+                        // Keep existing records in their original append-only file, but
+                        // normalize dates in memory so both on-screen and XLSX filters work.
+                        if(TryParseHistoryDate(r.Date,out var recordedDay))
+                        {
+                            var normal=FormatHistoryDate(recordedDay);
+                            if(!string.Equals(r.Date,normal,StringComparison.Ordinal))
+                                r=r with {Date=normal};
+                        }
+                        else invalidDates++;
                         if(!string.IsNullOrEmpty(r.AttemptId))
                         {
                             if(byAttempt.TryGetValue(r.AttemptId,out var at))rows[at]=r;
@@ -72,11 +94,12 @@ internal sealed class LocalStore
         }
         catch(IOException){HistoryReadFailed=true;}
         catch(UnauthorizedAccessException){HistoryReadFailed=true;}
-        if(invalid>0)HistoryReadFailed=true;
+        if(invalid>0 || invalidDates>0)HistoryReadFailed=true;
         if(HistoryReadFailed && !_historyReadWarning)
         {
             _historyReadWarning=true;
-            Trace("HISTORY","READ_FAILED","ERROR",0,invalid>0?"INVALID_ROWS":"IO_ERROR");
+            Trace("HISTORY","READ_FAILED","ERROR",0,
+                invalid>0?"INVALID_ROWS":invalidDates>0?"INVALID_DATE":"IO_ERROR");
         }
         if(!HistoryReadFailed)_historyReadWarning=false;
         return rows;
@@ -93,6 +116,26 @@ internal sealed class LocalStore
         try
         {
             AppendHistory(row);
+            // Verify the same read path used by UI/XLSX, not merely FileStream.Write().
+            // Restrict full readback to the first/final journal checkpoints to keep
+            // intermediate WMS actions responsive on long-running installations.
+            if(phase=="START" || phase=="FINAL")
+            {
+                var saved=History().FirstOrDefault(r=>
+                    !string.IsNullOrEmpty(row.AttemptId) &&
+                    r.AttemptId==row.AttemptId &&
+                    r.Phase==row.Phase);
+                if(saved==null ||
+                   !string.Equals(saved.Date,row.Date,StringComparison.Ordinal) ||
+                   !string.Equals(saved.SO,row.SO,StringComparison.Ordinal) ||
+                   !string.Equals(saved.DO,row.DO,StringComparison.Ordinal) ||
+                   !string.Equals(saved.Result,row.Result,StringComparison.Ordinal))
+                {
+                    Trace("HISTORY","READBACK_"+phase,"ERROR",0,"ROW_NOT_VISIBLE");
+                    return false;
+                }
+                Trace("HISTORY","READBACK_"+phase,"DONE");
+            }
             // Diagnostic log includes only a stage code; business data stays in history.jsonl.
             Trace("HISTORY","SAVE_"+phase,"DONE");
             return true;
@@ -161,11 +204,16 @@ internal sealed class LocalStore
             throw new ArgumentException("Khoảng ngày không hợp lệ.");
         return History().Where(r=>
         {
-            if(!DateTime.TryParseExact(r.Date,"dd/MM/yyyy",
-                System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.None,out var date))return false;
-            if(from.HasValue&&date.Date<from.Value.Date)return false;
-            if(to.HasValue&&date.Date>to.Value.Date)return false;
+            if(!TryParseHistoryDate(r.Date,out var date))
+            {
+                // An unrecognized old date must still be recoverable with "Tất cả".
+                if(from.HasValue||to.HasValue)return false;
+            }
+            else
+            {
+                if(from.HasValue&&date.Date<from.Value.Date)return false;
+                if(to.HasValue&&date.Date>to.Value.Date)return false;
+            }
             return resultFilter switch
             {
                 "COMPLETED" => r.Result=="UI_WORKFLOW_COMPLETE",
