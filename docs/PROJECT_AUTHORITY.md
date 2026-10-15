@@ -30,3 +30,11 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Layout phải dùng hiệu quả diện tích cửa sổ và co giãn theo kích thước.
 - Owner đã commit sửa `WmsWorkflowJs.cs` lên PR #3: chỉ bấm Không khi nội dung hộp thoại xác nhận đúng câu hỏi phiếu xuất kho; mã này còn phải qua CI và thử nghiệm WMS tại mạng Office. `tests/wms-dialog-regression.cjs` kiểm tra hai câu hỏi cùng một DOM node và trường hợp nút không hợp lệ.
 - Build/cập nhật dự kiến v1.1.0; workflow lấy phiên bản từ csproj. GitHub Actions PASS không tương đương xác nhận nhãn được in vật lý.
+
+## v1.2.0 — quyết định bổ sung và phân tích log 20:27–20:33 ngày 15/10/2026
+- Log do Owner cung cấp có 75 sự kiện (không đưa log gốc hoặc dữ liệu khách hàng lên repo). Lượt 20:31 bấm nút Print rồi chờ hộp thoại In Nhãn quá 20 giây và dừng. Lượt 20:32 đã click In Nhãn, Hoàn thành/Có/Không và trở về ô quét Tote lúc 20:33:06. Log cũ **không có event xác nhận ghi lịch sử** nên không thể xác quyết nguyên nhân cụ thể chỉ từ log.
+- Lịch sử phiên mới sử dụng **nhật ký append-only theo mỗi lượt** với AttemptId; ghi ngay sau xác nhận nhân sự và cập nhật khi nhận thông tin WMS, sẵn sàng in, đã yêu cầu in, đã gửi lệnh in nhãn, kết thúc. Khi thất bại/crash vẫn tồn tại bản ghi gần nhất; trang lịch sử và Excel chỉ hiển thị bản ghi sau cùng của từng AttemptId. Không xóa hay thay đổi format các dòng lịch sử phiên cũ.
+- Ghi file trực tiếp vào LocalAppData, flush xuống đĩa; log mỗi mốc SAVE_* DONE/ERROR không chứa Tote/SO/DO/nhân sự. Nếu lưu lỗi, dừng nghiệp vụ và yêu cầu kiểm tra ổ đĩa/quyền ghi. Khi đọc có lỗi sẽ hiển thị cảnh báo.
+- Danh sách nhân sự không tự chọn mặc định; lựa chọn được tô nổi, in đậm, font lớn hơn 20%; nhấn Enter xác nhận, không thêm hộp thoại xác nhận sau đó. Click chọn và Enter, hoặc phím mũi tên chọn rồi Enter.
+- Sau khi vòng giao diện kết thúc và cửa sổ sẵn sàng, app tự kích hoạt và đưa dấu nhập liệu về Tote. Không tự chạy lại thao tác không idempotent; nếu WMS chưa trở về quét Tote cần xác minh thủ công.
+- Kiểm thử CI chỉ có giá trị biên dịch, smoke dữ liệu và giả lập. Chưa được xem như bằng chứng máy in vật lý hoặc WMS production PASS.
