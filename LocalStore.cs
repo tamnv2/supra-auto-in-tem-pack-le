@@ -11,12 +11,12 @@ internal sealed record DiagRow(string At, string Version, string Stage, string E
 
 internal sealed class LocalStore
 {
-    public readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SupraAutoPackLe");
+    public readonly string Root;
     private string PeoplePath => Path.Combine(Root,"people.json");
     private string HistoryPath => Path.Combine(Root,"history.jsonl");
     private string Logs => Path.Combine(Root,"logs");
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
-    public LocalStore() { Directory.CreateDirectory(Root); Directory.CreateDirectory(Logs); }
+    public LocalStore(string? root=null) { Root=root ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SupraAutoPackLe"); Directory.CreateDirectory(Root); Directory.CreateDirectory(Logs); }
 
     public List<string> LoadPeople()
     {
