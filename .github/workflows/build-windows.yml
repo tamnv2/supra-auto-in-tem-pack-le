@@ -2,7 +2,7 @@ name: Build Windows EXE
 
 on:
   push:
-    branches: [main, feature/windows-auto-pack-v1]
+    branches: [main]
     tags: ['v*']
   pull_request:
     branches: [main]
