@@ -204,7 +204,7 @@ public sealed class MainForm : Form
         _historyHeading.Text="LỊCH SỬ HÔM NAY  |  "+_displayDate.ToString("dd/MM/yyyy")+"  |  "+today.Count+" lượt";
     }
     private static string Summary(BrowserPeek? p) => p==null?"NO_SNAPSHOT":
-        $"T={p.toteCount};P={p.packCount};Q={p.qtyCount};U={p.updateCount};R={p.printCount};L={p.printLabelCount};F={p.finishCount};Y={p.yesCount};N={p.noCount};D={p.dialogCount}";
+        $"T={p.toteCount};P={p.packCount};Q={p.qtyCount};U={p.updateCount};R={p.printCount};L={p.printLabelCount};F={p.finishCount};Y={p.yesCount};N={p.noCount};D={p.dialogCount};S={(p.outboundSlipPrompt?1:0)}";
     private async Task<BrowserPeek> WaitAsync(Func<BrowserPeek,bool> predicate,string code,int seconds,CancellationToken ct)
     {
         var time=Stopwatch.StartNew();
@@ -288,7 +288,7 @@ public sealed class MainForm : Form
             await ActionAsync("FINISH",null,ct);
             await WaitAsync(x=>x.yesCount==1&&x.dialogCount==1,"FINISH_CONFIRM",20,ct);
             await ActionAsync("YES",null,ct);
-            await WaitAsync(x=>x.noCount==1&&x.dialogCount==1,"NO_INSPECTION_DIALOG",20,ct);
+            await WaitAsync(x=>x.noCount==1&&x.dialogCount==1&&x.outboundSlipPrompt,"NO_INSPECTION_DIALOG",20,ct);
             await ActionAsync("NO",null,ct);
             Status("RETURN","Chờ quay về ô quét PTVC...");
             await WaitAsync(x=>x.ready&&x.toteCount==1&&x.dialogCount==0,"RETURN_PTVC",35,ct);
