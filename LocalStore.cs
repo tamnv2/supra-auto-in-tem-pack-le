@@ -116,6 +116,26 @@ internal sealed class LocalStore
         try
         {
             AppendHistory(row);
+            // Verify the same read path used by UI/XLSX, not merely FileStream.Write().
+            // Restrict full readback to the first/final journal checkpoints to keep
+            // intermediate WMS actions responsive on long-running installations.
+            if(phase=="START" || phase=="FINAL")
+            {
+                var saved=History().FirstOrDefault(r=>
+                    !string.IsNullOrEmpty(row.AttemptId) &&
+                    r.AttemptId==row.AttemptId &&
+                    r.Phase==row.Phase);
+                if(saved==null ||
+                   !string.Equals(saved.Date,row.Date,StringComparison.Ordinal) ||
+                   !string.Equals(saved.SO,row.SO,StringComparison.Ordinal) ||
+                   !string.Equals(saved.DO,row.DO,StringComparison.Ordinal) ||
+                   !string.Equals(saved.Result,row.Result,StringComparison.Ordinal))
+                {
+                    Trace("HISTORY","READBACK_"+phase,"ERROR",0,"ROW_NOT_VISIBLE");
+                    return false;
+                }
+                Trace("HISTORY","READBACK_"+phase,"DONE");
+            }
             // Diagnostic log includes only a stage code; business data stays in history.jsonl.
             Trace("HISTORY","SAVE_"+phase,"DONE");
             return true;
