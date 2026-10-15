@@ -37,6 +37,15 @@ internal static class StartupSmoke
                    sheet.Cell(2,7).GetString()!="DO12345678")
                     throw new Exception("XLSX_VALUES_FAILED");
             }
+            var checkpointId=Guid.NewGuid().ToString("N");
+            var checkpoint=new HistoryRow("15/10/2026","09:00:00","09:00:03",3,
+                "Người thử A","","","IN_PROGRESS"){AttemptId=checkpointId,Phase="START"};
+            if(!store.TryAppendHistory(checkpoint,"START"))throw new Exception("SAVE_CHECKPOINT_FAILED");
+            if(!store.TryAppendHistory(checkpoint with {Phase="FINAL",Result="UNCERTAIN_CHECK_WMS"},"FINAL"))
+                throw new Exception("SAVE_FINAL_FAILED");
+            var afterRestart=new LocalStore(tmp).History().Where(r=>r.AttemptId==checkpointId).ToList();
+            if(afterRestart.Count!=1||afterRestart[0].Result!="UNCERTAIN_CHECK_WMS")
+                throw new Exception("CHECKPOINT_DEDUP_RESTART_FAILED");
             var filtered=Path.Combine(tmp,"filtered.xlsx");
             store.ExportHistoryXlsx(filtered,new DateTime(2026,10,15),new DateTime(2026,10,15),"COMPLETED");
             using(var book=new XLWorkbook(filtered))
