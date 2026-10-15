@@ -33,11 +33,17 @@ jobs:
           $script | Set-Content -Path "$env:RUNNER_TEMP/wms-workflow-check.js" -Encoding utf8
           node --check "$env:RUNNER_TEMP/wms-workflow-check.js"
           if ($LASTEXITCODE -ne 0) { throw 'JS_SYNTAX_ERROR' }
+      - name: Regression test for reused WMS confirmation dialog
+        shell: pwsh
+        run: |
+          node tests/wms-dialog-regression.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'WMS_DIALOG_REGRESSION_FAILED' }
       - name: Build Windows x64 portable
         shell: pwsh
         run: |
-          $version = '1.0.0'
-          if ($env:GITHUB_REF -like 'refs/tags/v*') { $version = $env:GITHUB_REF_NAME.Substring(1) }
+          $version = ([xml](Get-Content './SupraAutoPackLe.csproj' -Raw)).Project.PropertyGroup.Version
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'INVALID_PROJECT_VERSION' }
+          if ($env:GITHUB_REF -like 'refs/tags/v*' -and $env:GITHUB_REF_NAME.Substring(1) -ne $version) { throw 'TAG_VERSION_MISMATCH' }
           dotnet restore ./SupraAutoPackLe.csproj
           if ($LASTEXITCODE -ne 0) { throw 'RESTORE_FAILED' }
           dotnet publish ./SupraAutoPackLe.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:Version=$version -o publish

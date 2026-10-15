@@ -78,14 +78,43 @@ internal sealed class LocalStore
         using var writer=new StreamWriter(output.CreateEntry("README.txt").Open(),Encoding.UTF8);
         writer.Write("Chỉ log kỹ thuật allowlist. Không chứa Tote, SO/DO, nhân sự, mật khẩu, token, cookie hay HTTP header.");
     }
-    public void ExportHistoryXlsx(string filename)
+    public static string ResultLabel(string? result) => result switch
+    {
+        "UI_WORKFLOW_COMPLETE" => "Đã hoàn tất quy trình trên WMS",
+        "UNCERTAIN_CHECK_WMS" => "Chưa hoàn tất - cần kiểm tra WMS",
+        "OPERATOR_CANCELLED" => "Đã dừng thủ công",
+        "PROCESSING" => "Đang xử lý",
+        _ => string.IsNullOrWhiteSpace(result) ? "Chưa xác định" : result
+    };
+
+    public IReadOnlyList<HistoryRow> FilterHistory(DateTime? from=null,DateTime? to=null,string resultFilter="ALL")
+    {
+        if(from.HasValue && to.HasValue && from.Value.Date>to.Value.Date)
+            throw new ArgumentException("Khoảng ngày không hợp lệ.");
+        return History().Where(r=>
+        {
+            if(!DateTime.TryParseExact(r.Date,"dd/MM/yyyy",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,out var date))return false;
+            if(from.HasValue&&date.Date<from.Value.Date)return false;
+            if(to.HasValue&&date.Date>to.Value.Date)return false;
+            return resultFilter switch
+            {
+                "COMPLETED" => r.Result=="UI_WORKFLOW_COMPLETE",
+                "INCOMPLETE" => r.Result!="UI_WORKFLOW_COMPLETE",
+                _ => true
+            };
+        }).ToList();
+    }
+
+    public void ExportHistoryXlsx(string filename,DateTime? from=null,DateTime? to=null,string resultFilter="ALL")
     {
         using var wb=new XLWorkbook();
         var ws=wb.AddWorksheet("Lịch sử in tem");
         string[] header=["Ngày","Bắt đầu","Kết thúc","Thời gian (giây)","Nhân sự","Mã SO","Mã DO","Kết quả"];
         for(var i=0;i<header.Length;i++)ws.Cell(1,i+1).Value=header[i];
         var index=2;
-        foreach(var row in History())
+        foreach(var row in FilterHistory(from,to,resultFilter))
         {
             ws.Cell(index,1).Value=SafeExcel(row.Date);
             ws.Cell(index,2).Value=SafeExcel(row.Start);
@@ -94,7 +123,7 @@ internal sealed class LocalStore
             ws.Cell(index,5).Value=SafeExcel(row.Person);
             ws.Cell(index,6).Value=SafeExcel(row.SO);
             ws.Cell(index,7).Value=SafeExcel(row.DO);
-            ws.Cell(index,8).Value=SafeExcel(row.Result);
+            ws.Cell(index,8).Value=SafeExcel(ResultLabel(row.Result));
             index++;
         }
         ws.Range(1,1,1,header.Length).Style.Font.Bold=true;
