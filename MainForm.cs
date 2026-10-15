@@ -42,7 +42,7 @@ public sealed class MainForm : Form
     {
         _people=_store.LoadPeople();
         _browser=new WmsBrowser(_store);
-        Text="SUPRA – AUTO IN TEM PACK LẺ | 1.0.0";
+        Text="SUPRA – AUTO IN TEM PACK LẺ | "+Application.ProductVersion;
         Font=new Font("Segoe UI",10);
         MinimumSize=new Size(780,610);Width=1040;Height=790;
         StartPosition=FormStartPosition.CenterScreen;
@@ -210,15 +210,21 @@ public sealed class MainForm : Form
         var time=Stopwatch.StartNew();
         _store.Trace(_stage,"WAIT_"+code,"WAIT",_watch.ElapsedMilliseconds);
         BrowserPeek? last=null;
+        var stableSamples=0;
         while(time.Elapsed<TimeSpan.FromSeconds(seconds))
         {
             ct.ThrowIfCancellationRequested();
             last=await _browser.PeekAsync();
             if(last?.ok==true && predicate(last))
             {
-                _store.Trace(_stage,"WAIT_"+code,"DONE",_watch.ElapsedMilliseconds,Summary(last));
-                return last;
+                // Two consecutive observations instead of clicking on a transient render.
+                if(++stableSamples>=2)
+                {
+                    _store.Trace(_stage,"WAIT_"+code,"DONE",_watch.ElapsedMilliseconds,Summary(last));
+                    return last;
+                }
             }
+            else stableSamples=0;
             await Task.Delay(350,ct);
         }
         _store.Trace(_stage,"WAIT_"+code,"TIMEOUT",_watch.ElapsedMilliseconds,Summary(last));
@@ -229,7 +235,7 @@ public sealed class MainForm : Form
         ct.ThrowIfCancellationRequested();
         var r=await _browser.PerformAsync(action,value);
         var reason=Regex.IsMatch(r.reason??"","^[A-Z0-9_]{1,60}$")?r.reason:"UNSPECIFIED";
-        _store.Trace(_stage,"ACTION_"+action,r.ok?"OK":"BLOCKED",_watch.ElapsedMilliseconds,reason);
+        _store.Trace(_stage,"ACTION_"+action,r.ok?"OK":"BLOCKED",_watch.ElapsedMilliseconds,r.ok?"DONE":reason);
         if(!r.ok)throw new WorkflowHalt("Không xác định được đối tượng WMS ở bước "+action+". Mở Web để xử lý.");
     }
     private async Task OnSubmitAsync()
@@ -251,7 +257,7 @@ public sealed class MainForm : Form
             MessageBoxIcon.Question)!=DialogResult.OK)return;
         _busy=true;_cancel=new CancellationTokenSource();_watch.Restart();UpdateControls();
         var started=DateTime.Now;
-        string so="",doCode="";var success=false;
+        string so="",doCode="";var success=false;var resultCode="UNCERTAIN_CHECK_WMS";
         _store.Trace("TOTE","JOB_STARTED","OK");
         try
         {
@@ -292,6 +298,7 @@ public sealed class MainForm : Form
         }
         catch(OperationCanceledException)
         {
+            resultCode="OPERATOR_CANCELLED";
             _store.Trace("STOP","JOB_INTERRUPTED","UNCERTAIN",_watch.ElapsedMilliseconds);
             Status("FAULT","Đã dừng. Mở Web kiểm tra thủ công; KHÔNG tự in lại.");
             _needsRecovery=true;_browser.Reveal();
@@ -315,7 +322,7 @@ public sealed class MainForm : Form
             _store.AppendHistory(new HistoryRow(started.ToString("dd/MM/yyyy"),
                 started.ToString("HH:mm:ss"),ended.ToString("HH:mm:ss"),
                 (long)Math.Round(_watch.Elapsed.TotalSeconds),person,so,doCode,
-                success?"UI_WORKFLOW_COMPLETE":"UNCERTAIN_CHECK_WMS"));
+                success?"UI_WORKFLOW_COMPLETE":resultCode));
             RefreshHistory();
             _tote.Clear();_qty.Clear();
             _busy=false;_cancel?.Dispose();_cancel=null;
