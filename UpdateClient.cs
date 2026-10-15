@@ -101,7 +101,7 @@ internal static class UpdateClient
                "try { Wait-Process -Id $pidToWait -Timeout 40 -ErrorAction SilentlyContinue } catch {}\n"+
                "Start-Sleep -Seconds 1\n"+
                "try {\n"+
-               "  Copy-Item -LiteralPath (Join-Path $source '*') -Destination $target -Recurse -Force -ErrorAction Stop\n"+
+               "  Copy-Item -Path (Join-Path $source '*') -Destination $target -Recurse -Force -ErrorAction Stop\n"+
                "  Start-Process -FilePath $exe\n"+
                "} catch {\n"+
                "  Add-Type -AssemblyName PresentationFramework\n"+
