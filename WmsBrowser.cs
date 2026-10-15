@@ -18,6 +18,7 @@ internal sealed class BrowserPeek
     public int updateCount {get;set;}
     public int yesCount {get;set;}
     public int noCount {get;set;}
+    public bool outboundSlipPrompt {get;set;}
     public int printLabelCount {get;set;}
     public int dialogCount {get;set;}
     public string so {get;set;}="";
