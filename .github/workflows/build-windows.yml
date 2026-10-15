@@ -22,6 +22,17 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Validate embedded WMS JavaScript syntax
+        shell: pwsh
+        run: |
+          $raw = Get-Content 'WmsWorkflowJs.cs' -Raw
+          $begin = $raw.IndexOf('"""')
+          $end = $raw.LastIndexOf('"""')
+          if ($begin -lt 0 -or $end -le $begin) { throw 'EMBEDDED_JS_NOT_FOUND' }
+          $script = $raw.Substring($begin + 3, $end - $begin - 3)
+          $script | Set-Content -Path "$env:RUNNER_TEMP/wms-workflow-check.js" -Encoding utf8
+          node --check "$env:RUNNER_TEMP/wms-workflow-check.js"
+          if ($LASTEXITCODE -ne 0) { throw 'JS_SYNTAX_ERROR' }
       - name: Build Windows x64 portable
         shell: pwsh
         run: |
