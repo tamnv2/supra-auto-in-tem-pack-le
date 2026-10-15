@@ -28,4 +28,5 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Ứng dụng chỉ hiển thị lịch sử trong ngày, dữ liệu cũ vẫn ở ổ local; xuất XLSX một ngày/khoảng ngày/tất cả, có bộ lọc trạng thái.
 - Dù lượt chưa hoàn tất vẫn có dòng lịch sử; trạng thái người dùng phải Việt hóa. Giữ log kỹ thuật dưới dạng mã, không ghi nội dung SO/DO/người/Tote vào log.
 - Layout phải dùng hiệu quả diện tích cửa sổ và co giãn theo kích thước.
-- PR #3 là **bản nháp chưa được phát hành** khi chưa sửa phần điều khiển hộp thoại ở `WmsWorkflowJs.cs`; tuyệt đối không tuyên bố WMS/physical print PASS chỉ dựa trên CI.
+- Owner đã commit sửa `WmsWorkflowJs.cs` lên PR #3: chỉ bấm Không khi nội dung hộp thoại xác nhận đúng câu hỏi phiếu xuất kho; mã này còn phải qua CI và thử nghiệm WMS tại mạng Office. `tests/wms-dialog-regression.cjs` kiểm tra hai câu hỏi cùng một DOM node và trường hợp nút không hợp lệ.
+- Build/cập nhật dự kiến v1.1.0; workflow lấy phiên bản từ csproj. GitHub Actions PASS không tương đương xác nhận nhãn được in vật lý.
