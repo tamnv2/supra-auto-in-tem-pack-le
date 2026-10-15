@@ -1,5 +1,6 @@
 using ClosedXML.Excel;
 using System.IO.Compression;
+using System.Globalization;
 
 namespace SupraAutoPackLe;
 
@@ -55,6 +56,33 @@ internal static class StartupSmoke
                    sheet.Cell(2,8).GetString()!="Đã hoàn tất quy trình trên WMS")
                     throw new Exception("FILTERED_XLSX_FAILED");
             }
+            // Regression: legacy Windows regional settings may save a hyphen or
+            // dot even when ToString("dd/MM/yyyy") is used. Do not drop those rows.
+            var oldCulture=CultureInfo.CurrentCulture;
+            try
+            {
+                var region=(CultureInfo)CultureInfo.GetCultureInfo("de-DE").Clone();
+                region.DateTimeFormat.DateSeparator=".";
+                CultureInfo.CurrentCulture=region;
+                if(LocalStore.FormatHistoryDate(new DateTime(2026,10,15))!="15/10/2026")
+                    throw new Exception("HISTORY_FORMAT_DEPENDS_ON_WINDOWS_CULTURE");
+                store.AppendHistory(new HistoryRow("15.10.2026","10:10:00","10:10:08",8,
+                    "Người thử A","SO33333333","DO33333333","UI_WORKFLOW_COMPLETE"));
+                store.AppendHistory(new HistoryRow("15-10-2026","10:20:00","10:20:08",8,
+                    "Người thử B","SO44444444","DO44444444","UNCERTAIN_CHECK_WMS"));
+                var recovered=new LocalStore(tmp).FilterHistory(
+                    new DateTime(2026,10,15),new DateTime(2026,10,15));
+                if(recovered.Count!=5 || recovered.Any(x=>x.Date!="15/10/2026") ||
+                   !recovered.Any(x=>x.SO=="SO33333333") ||
+                   !recovered.Any(x=>x.DO=="DO44444444"))
+                    throw new Exception("LEGACY_WINDOWS_DATES_NOT_RECOVERED");
+                var recoveredFile=Path.Combine(tmp,"recovered.xlsx");
+                store.ExportHistoryXlsx(recoveredFile,new DateTime(2026,10,15),new DateTime(2026,10,15));
+                using(var book=new XLWorkbook(recoveredFile))
+                    if(book.Worksheet("Lịch sử in tem").LastRowUsed()?.RowNumber()!=6)
+                        throw new Exception("RECOVERED_HISTORY_XLSX_MISSING_ROWS");
+            }
+            finally { CultureInfo.CurrentCulture=oldCulture; }
             store.Trace("TEST","STARTUP_SMOKE","DONE",9,"TARGETS=1");
             var zip=Path.Combine(tmp,"testlogs.zip");
             store.ExportLogs(zip,new DateTime(2026,1,1),new DateTime(2026,12,31));
