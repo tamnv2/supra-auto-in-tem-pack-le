@@ -20,3 +20,12 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 ## Test gates
 - Build Windows x64 pass trên GitHub; test UI đối tượng/nhãn, số kiện 5→6, hai hộp thoại Có/Không, lỗi mạng, nhập tên hàng loạt và xóa tất cả, xuất xlsx/log lọc thời gian, bảo mật/log, update checksum/rollback.
 - Test WMS tại mạng Office do Owner xác nhận; chưa test thật thì không tuyên bố phần mềm chạy ổn định hoặc in thành công.
+
+## Field review 2026-10-15 — hậu kiểm v1.0.0, yêu cầu sửa v1.1
+- Owner bổ sung ZIP log JSONL local; kiểm tra 51 sự kiện ngày 15/10. Lượt thứ nhất bị dừng thủ công trong khi chờ PACK_BUTTON; lượt thứ hai đã gửi In Nhãn và xác nhận hoàn tất, nhưng `ACTION_NO` bị `DIALOG_NOT_CHANGED` tại 19:40:30.929. Không đồng nghĩa xác nhận máy in vật lý đã in.
+- WMS thực tế hiển thị câu hỏi in **phiếu xuất kho** sau hoàn tất. Chỉ được bấm **Không** nếu dialog đang hiện chứa chính câu hỏi này; không dùng định danh DOM của dialog trước đó và không bấm theo `noCount` đơn thuần.
+- Chờ UI ổn định qua ít nhất hai lần quan sát trước các bước có tác động; không tự thử lại tác vụ in/đóng gói khi chưa xác định.
+- Ứng dụng chỉ hiển thị lịch sử trong ngày, dữ liệu cũ vẫn ở ổ local; xuất XLSX một ngày/khoảng ngày/tất cả, có bộ lọc trạng thái.
+- Dù lượt chưa hoàn tất vẫn có dòng lịch sử; trạng thái người dùng phải Việt hóa. Giữ log kỹ thuật dưới dạng mã, không ghi nội dung SO/DO/người/Tote vào log.
+- Layout phải dùng hiệu quả diện tích cửa sổ và co giãn theo kích thước.
+- PR #3 là **bản nháp chưa được phát hành** khi chưa sửa phần điều khiển hộp thoại ở `WmsWorkflowJs.cs`; tuyệt đối không tuyên bố WMS/physical print PASS chỉ dựa trên CI.
