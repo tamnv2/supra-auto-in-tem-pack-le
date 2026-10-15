@@ -6,7 +6,12 @@ using ClosedXML.Excel;
 
 namespace SupraAutoPackLe;
 
-internal sealed record HistoryRow(string Date, string Start, string End, long Seconds, string Person, string SO, string DO, string Result);
+internal sealed record HistoryRow(string Date, string Start, string End, long Seconds, string Person, string SO, string DO, string Result)
+{
+    // An attempt is written at multiple checkpoints; older JSONL entries omit both fields.
+    public string AttemptId { get; init; } = "";
+    public string Phase { get; init; } = "";
+}
 internal sealed record DiagRow(string At, string Version, string Stage, string Event, string Outcome, long ElapsedMs, string Detail);
 
 internal sealed class LocalStore
@@ -16,6 +21,8 @@ internal sealed class LocalStore
     private string HistoryPath => Path.Combine(Root,"history.jsonl");
     private string Logs => Path.Combine(Root,"logs");
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
+    private bool _historyReadWarning;
+    public bool HistoryReadFailed { get; private set; }
     public LocalStore(string? root=null) { Root=root ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SupraAutoPackLe"); Directory.CreateDirectory(Root); Directory.CreateDirectory(Logs); }
 
     public List<string> LoadPeople()
@@ -36,15 +43,75 @@ internal sealed class LocalStore
     }
     public IReadOnlyList<HistoryRow> History()
     {
+        // Keep the latest checkpoint of each attempt while preserving legacy history.
         var rows=new List<HistoryRow>();
-        try { if(File.Exists(HistoryPath)) foreach(var line in File.ReadLines(HistoryPath))
-              try { var r=JsonSerializer.Deserialize<HistoryRow>(line);if(r!=null) rows.Add(r); } catch {} }
-        catch {}
+        var byAttempt=new Dictionary<string,int>(StringComparer.Ordinal);
+        HistoryReadFailed=false;
+        var invalid=0;
+        try
+        {
+            if(File.Exists(HistoryPath))
+            {
+                foreach(var line in File.ReadLines(HistoryPath))
+                {
+                    if(string.IsNullOrWhiteSpace(line))continue;
+                    try
+                    {
+                        var r=JsonSerializer.Deserialize<HistoryRow>(line);
+                        if(r==null){invalid++;continue;}
+                        if(!string.IsNullOrEmpty(r.AttemptId))
+                        {
+                            if(byAttempt.TryGetValue(r.AttemptId,out var at))rows[at]=r;
+                            else {byAttempt.Add(r.AttemptId,rows.Count);rows.Add(r);}
+                        }
+                        else rows.Add(r);
+                    }
+                    catch(JsonException){invalid++;}
+                }
+            }
+        }
+        catch(IOException){HistoryReadFailed=true;}
+        catch(UnauthorizedAccessException){HistoryReadFailed=true;}
+        if(invalid>0)HistoryReadFailed=true;
+        if(HistoryReadFailed && !_historyReadWarning)
+        {
+            _historyReadWarning=true;
+            Trace("HISTORY","READ_FAILED","ERROR",0,invalid>0?"INVALID_ROWS":"IO_ERROR");
+        }
+        if(!HistoryReadFailed)_historyReadWarning=false;
         return rows;
     }
     public void AppendHistory(HistoryRow row)
     {
-        File.AppendAllText(HistoryPath,JsonSerializer.Serialize(row,Json)+"\n",new UTF8Encoding(false));
+        var bytes=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(row,Json)+"\n");
+        using var file=new FileStream(HistoryPath,FileMode.Append,FileAccess.Write,FileShare.Read);
+        file.Write(bytes);
+        file.Flush(flushToDisk:true);
+    }
+    public bool TryAppendHistory(HistoryRow row,string phase)
+    {
+        try
+        {
+            AppendHistory(row);
+            // Diagnostic log includes only a stage code; business data stays in history.jsonl.
+            Trace("HISTORY","SAVE_"+phase,"DONE");
+            return true;
+        }
+        catch(UnauthorizedAccessException)
+        {
+            Trace("HISTORY","SAVE_"+phase,"ERROR",0,"ACCESS_DENIED");
+            return false;
+        }
+        catch(IOException)
+        {
+            Trace("HISTORY","SAVE_"+phase,"ERROR",0,"IO_ERROR");
+            return false;
+        }
+        catch(Exception)
+        {
+            Trace("HISTORY","SAVE_"+phase,"ERROR",0,"UNKNOWN_ERROR");
+            return false;
+        }
     }
     private static readonly Regex Code = new("^[A-Z0-9_]{1,60}$",RegexOptions.Compiled);
     private static readonly Regex DetailCode = new("^[A-Z0-9_=,;|.:-]{0,220}$",RegexOptions.Compiled);
@@ -84,6 +151,7 @@ internal sealed class LocalStore
         "UNCERTAIN_CHECK_WMS" => "Chưa hoàn tất - cần kiểm tra WMS",
         "OPERATOR_CANCELLED" => "Đã dừng thủ công",
         "PROCESSING" => "Đang xử lý",
+        "IN_PROGRESS" => "Đang xử lý - chờ hoàn tất",
         _ => string.IsNullOrWhiteSpace(result) ? "Chưa xác định" : result
     };
 
