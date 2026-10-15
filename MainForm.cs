@@ -51,6 +51,7 @@ public sealed class MainForm : Form
         RefreshHistory();
         _midnightCheck.Tick+=(_,_)=>{if(_displayDate!=DateTime.Today)RefreshHistory();};
         _midnightCheck.Start();
+        Activated+=(_,_)=>{if(!_busy&&!_needsRecovery&&_tote.Enabled)_tote.Focus();};
         Status("INIT","Mở cửa sổ WMS, đăng nhập và chọn máy in trước khi dùng.");
         Shown+=async (_,_)=>{
             _browser.Reveal();
@@ -161,7 +162,7 @@ public sealed class MainForm : Form
         _recover.Click+=async (_,_)=>{
             var p=await _browser.PeekAsync();
             if(p?.ready==true){_needsRecovery=false;Status("READY","Đã xác nhận WMS về ô Tote.");
-                UpdateControls();_tote.Focus();}
+                UpdateControls();FocusToteIfIdle();}
             else{_browser.Reveal();MessageBox.Show("WMS chưa trở về màn hình quét Tote. Hãy hoàn tất bằng tay.");}
         };
         _exportXlsx.Click+=(_,_)=>ExportXlsx();
@@ -202,6 +203,24 @@ public sealed class MainForm : Form
         foreach(var r in today.Reverse().Take(500))
             _history.Rows.Add(r.Date,r.Start,r.End,r.Seconds,r.Person,r.SO,r.DO,LocalStore.ResultLabel(r.Result));
         _historyHeading.Text="LỊCH SỬ HÔM NAY  |  "+_displayDate.ToString("dd/MM/yyyy")+"  |  "+today.Count+" lượt";
+        if(_store.HistoryReadFailed)
+        {
+            _historyHeading.Text+="  |  CẢNH BÁO ĐỌC LỊCH SỬ";
+            _historyHeading.ForeColor=Color.DarkRed;
+        }
+        else _historyHeading.ForeColor=_navy;
+    }
+    private void FocusToteIfIdle()
+    {
+        if(IsDisposed||!IsHandleCreated||_busy||_needsRecovery)return;
+        BeginInvoke(new Action(()=>
+        {
+            if(IsDisposed||_busy||_needsRecovery||!_tote.Enabled)return;
+            if(WindowState==FormWindowState.Minimized)WindowState=FormWindowState.Normal;
+            Activate();
+            _tote.Focus();
+            _tote.SelectAll();
+        }));
     }
     private static string Summary(BrowserPeek? p) => p==null?"NO_SNAPSHOT":
         $"T={p.toteCount};P={p.packCount};Q={p.qtyCount};U={p.updateCount};R={p.printCount};L={p.printLabelCount};F={p.finishCount};Y={p.yesCount};N={p.noCount};D={p.dialogCount};S={(p.outboundSlipPrompt?1:0)}";
@@ -250,23 +269,35 @@ public sealed class MainForm : Form
         {_browser.Reveal();MessageBox.Show("WMS chưa ở màn hình quét Tote. Vui lòng đăng nhập và chọn máy in.");return;}
         _people=_store.LoadPeople();
         if(_people.Count==0){ManagePeople();return;}
+        // Selecting a person and pressing Enter is the sole confirmation.
         var person=ChoosePerson();
         if(person==null)return;
-        if(MessageBox.Show("Tote: "+tote+"\nSố kiện: "+count+"\nNgười thực hiện: "+person+
-            "\n\nBắt đầu đóng gói và in nhãn?", "XÁC NHẬN",MessageBoxButtons.OKCancel,
-            MessageBoxIcon.Question)!=DialogResult.OK)return;
         _busy=true;_cancel=new CancellationTokenSource();_watch.Restart();UpdateControls();
         var started=DateTime.Now;
+        var attemptId=Guid.NewGuid().ToString("N").ToUpperInvariant();
         string so="",doCode="";var success=false;var resultCode="UNCERTAIN_CHECK_WMS";
+        HistoryRow Snapshot(string phase,string result) => new HistoryRow(
+            started.ToString("dd/MM/yyyy"),started.ToString("HH:mm:ss"),
+            DateTime.Now.ToString("HH:mm:ss"),(long)Math.Round(_watch.Elapsed.TotalSeconds),
+            person,so,doCode,result){AttemptId=attemptId,Phase=phase};
+        void Checkpoint(string phase)
+        {
+            if(!_store.TryAppendHistory(Snapshot(phase,"IN_PROGRESS"),phase))
+                throw new WorkflowHalt("Không thể lưu lịch sử vào máy. Đã dừng để tránh mất dữ liệu.");
+            RefreshHistory();
+        }
         _store.Trace("TOTE","JOB_STARTED","OK");
         try
         {
+            // Persist BEFORE the first WMS action. Further checkpoints update the same attempt.
+            Checkpoint("START");
             var ct=_cancel.Token;
             Status("TOTE","Nhập Tote và Enter...");
             await ActionAsync("TOTE",tote,ct);
             await _browser.EnterAsync();
             var p=await WaitAsync(x=>x.packCount==1,"PACK_BUTTON",30,ct);
             so=p.so;doCode=p.Do;
+            Checkpoint("WMS_INFO");
             if(!CodeFormat.IsMatch(so)||!CodeFormat.IsMatch(doCode))
                 throw new WorkflowHalt("Không đọc được Mã SO/Mã DO trong THÔNG TIN SO ĐANG ĐÓNG GÓI.");
             Status("PACK","Click ĐÓNG GÓI HÀNG CHẴN");
@@ -279,10 +310,13 @@ public sealed class MainForm : Form
             Status("UPDATE","Xác nhận Cập Nhật → Có");
             await ActionAsync("YES",null,ct);
             await WaitAsync(x=>x.printCount==1&&x.finishCount==1&&x.dialogCount==0,"PACKED_PAGE",30,ct);
+            Checkpoint("PRINT_READY");
             Status("PRINT","Mở hộp thoại in nhãn...");
             await ActionAsync("PRINT",null,ct);
+            Checkpoint("PRINT_REQUEST");
             await WaitAsync(x=>x.printLabelCount==1&&x.dialogCount==1,"PRINT_DIALOG",20,ct);
             await ActionAsync("PRINT_LABEL",null,ct);
+            Checkpoint("LABEL_REQUEST");
             await WaitAsync(x=>x.printLabelCount==0&&x.dialogCount==0&&x.finishCount==1,"PRINT_CLOSED",25,ct);
             Status("FINISH","Hoàn thành đóng gói...");
             await ActionAsync("FINISH",null,ct);
@@ -290,6 +324,7 @@ public sealed class MainForm : Form
             await ActionAsync("YES",null,ct);
             await WaitAsync(x=>x.noCount==1&&x.dialogCount==1&&x.outboundSlipPrompt,"NO_INSPECTION_DIALOG",20,ct);
             await ActionAsync("NO",null,ct);
+            Checkpoint("FINISH_CONFIRMED");
             Status("RETURN","Chờ quay về ô quét PTVC...");
             await WaitAsync(x=>x.ready&&x.toteCount==1&&x.dialogCount==0,"RETURN_PTVC",35,ct);
             success=true;
@@ -319,30 +354,93 @@ public sealed class MainForm : Form
         {
             _watch.Stop();
             var ended=DateTime.Now;
-            _store.AppendHistory(new HistoryRow(started.ToString("dd/MM/yyyy"),
-                started.ToString("HH:mm:ss"),ended.ToString("HH:mm:ss"),
-                (long)Math.Round(_watch.Elapsed.TotalSeconds),person,so,doCode,
-                success?"UI_WORKFLOW_COMPLETE":resultCode));
+            // Final row supersedes the latest checkpoint; do not lose prior snapshots on failure.
+            var finalRow=Snapshot("FINAL",success?"UI_WORKFLOW_COMPLETE":resultCode) with
+            {
+                End=ended.ToString("HH:mm:ss")
+            };
+            var saved=_store.TryAppendHistory(finalRow,"FINAL");
             RefreshHistory();
+            if(!saved)
+            {
+                _needsRecovery=true;
+                Status("FAULT","LƯU LỊCH SỬ THẤT BẠI. Kiểm tra ổ đĩa/quyền ghi trước khi xử lý tiếp.");
+                MessageBox.Show(this,
+                    "Không ghi được kết quả cuối vào lịch sử nội bộ. Lượt đang xử lý đã có các mốc lưu trước đó nếu ghi đĩa vẫn hoạt động. Hãy kiểm tra quyền ghi hoặc dung lượng ổ đĩa.",
+                    "Lỗi lưu lịch sử",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            }
             _tote.Clear();_qty.Clear();
             _busy=false;_cancel?.Dispose();_cancel=null;
-            UpdateControls();_tote.Focus();
+            UpdateControls();FocusToteIfIdle();
         }
     }
     private string? ChoosePerson()
     {
-        using var f=new Form{Text="CHỌN NHÂN SỰ – không có tên mặc định",Width=630,Height=520,
-            StartPosition=FormStartPosition.CenterParent};
-        var panel=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,Padding=new Padding(12)};
-        string? selected=null;
-        foreach(var name in _people)
+        using var f=new Form
         {
-            var copy=name;var b=MakeButton(copy,210);b.Height=44;
-            b.Click+=(_,_)=>{selected=copy;f.DialogResult=DialogResult.OK;f.Close();};
-            panel.Controls.Add(b);
+            Text="CHỌN NHÂN SỰ",Width=620,Height=550,MinimumSize=new Size(470,410),
+            StartPosition=FormStartPosition.CenterParent,Font=new Font("Segoe UI",11),
+            BackColor=Color.FromArgb(247,249,252)
+        };
+        var hint=new Label
+        {
+            Text="Chọn nhân sự bằng chuột hoặc phím mũi tên, nhấn ENTER để xác nhận",
+            Dock=DockStyle.Top,Height=54,Padding=new Padding(14,6,10,0),
+            TextAlign=ContentAlignment.MiddleLeft
+        };
+        var list=new ListBox
+        {
+            Dock=DockStyle.Fill,Margin=new Padding(12),
+            Font=new Font("Segoe UI",12,FontStyle.Regular),
+            DrawMode=DrawMode.OwnerDrawFixed,ItemHeight=50,IntegralHeight=false,
+            BorderStyle=BorderStyle.None,BackColor=Color.White
+        };
+        using var selectedFont=new Font(list.Font.FontFamily,list.Font.Size*1.2f,FontStyle.Bold);
+        list.Items.AddRange(_people.Cast<object>().ToArray());
+        list.SelectedIndex=-1; // No implicit/default employee.
+        list.DrawItem+=(_,e)=>
+        {
+            if(e.Index<0||e.Index>=list.Items.Count)return;
+            var isSelected=(e.State&DrawItemState.Selected)==DrawItemState.Selected;
+            using var background=new SolidBrush(isSelected?Color.FromArgb(30,102,175):Color.White);
+            e.Graphics.FillRectangle(background,e.Bounds);
+            var color=isSelected?Color.White:Color.FromArgb(35,48,65);
+            var bounds=new Rectangle(e.Bounds.X+14,e.Bounds.Y,e.Bounds.Width-24,e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics,list.Items[e.Index]?.ToString()??"",
+                isSelected?selectedFont:list.Font,bounds,color,
+                TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
+            e.DrawFocusRectangle();
+        };
+        list.SelectedIndexChanged+=(_,_)=>list.Invalidate();
+        var footer=new Panel{Dock=DockStyle.Bottom,Height=69,Padding=new Padding(12)};
+        var confirm=MakeButton("XÁC NHẬN (ENTER)",210);
+        confirm.Dock=DockStyle.Right;
+        confirm.Enabled=false;
+        list.SelectedIndexChanged+=(_,_)=>confirm.Enabled=list.SelectedIndex>=0;
+        void AcceptSelection()
+        {
+            if(list.SelectedIndex<0)return;
+            f.DialogResult=DialogResult.OK;
+            f.Close();
         }
-        f.Controls.Add(panel);
-        return f.ShowDialog(this)==DialogResult.OK?selected:null;
+        confirm.Click+=(_,_)=>AcceptSelection();
+        list.KeyDown+=(_,e)=>
+        {
+            if(e.KeyCode==Keys.Enter)
+            {
+                e.SuppressKeyPress=true;
+                AcceptSelection();
+            }
+        };
+        list.MouseDoubleClick+=(_,_)=>AcceptSelection();
+        f.AcceptButton=confirm;
+        footer.Controls.Add(confirm);
+        f.Controls.Add(list);
+        f.Controls.Add(footer);
+        f.Controls.Add(hint);
+        f.Shown+=(_,_)=>list.Focus();
+        return f.ShowDialog(this)==DialogResult.OK && list.SelectedIndex>=0
+            ?_people[list.SelectedIndex]:null;
     }
     private void ManagePeople()
     {
