@@ -23,10 +23,16 @@ internal static class WmsWorkflowJs
       const buttons=root=>Array.from(root.querySelectorAll('button,[role="button"]')).filter(enabled);
       const byName=(n,exact=true)=>buttons(document).filter(e=>exact?name(e)===n:name(e).startsWith(n));
       const inDialog=n=>{const d=dialog();return d?buttons(d).filter(e=>name(e)===n):[]};
+      // A confirmation dialog may be reused by WMS. Verify its actual meaning,
+      // not whether its DOM element identity changed after the preceding "Co".
+      // Only a boolean is returned to the application; no order or dialog text is logged.
+      const outboundSlipPrompt=()=>{
+        const d=dialog();
+        return !!d && /bạn\s+có\s+muốn\s+in\s+phiếu\s+xuất\s+kho/i.test(clean(d.innerText));
+      };
       const input=keyword=>Array.from(document.querySelectorAll('input')).filter(e=>enabled(e)&&
         clean(e.getAttribute('placeholder')).toLocaleLowerCase('vi').includes(keyword.toLocaleLowerCase('vi')));
       const click=list=>{const el=unique(list);if(!el)return {ok:false,reason:list.length?'AMBIGUOUS':'NOT_FOUND'};el.click();return {ok:true};};
-      let previousYesDialog=null;
       const printButtons=()=>buttons(document).filter(e=>(
         name(e).toLowerCase()==='print'||clean(e.getAttribute('title')).toLowerCase()==='print') &&
         (e.classList.contains('app-table-action-button') || e.closest('app-btn-row,app-so-packing-confirm')));
@@ -70,6 +76,7 @@ internal static class WmsWorkflowJs
           printCount:printButtons().length,finishCount:finish.length,
           updateCount:inDialog('Cập Nhật').length,yesCount:inDialog('Có').length,
           noCount:inDialog('Không').length,printLabelCount:inDialog('In Nhãn').length,
+          outboundSlipPrompt:outboundSlipPrompt(),
           dialogCount:dialogs().length,
           so:extract('Mã SO'),do:extract('Mã DO')
         };
@@ -96,13 +103,11 @@ internal static class WmsWorkflowJs
             return el.value===s?{ok:true}:{ok:false,reason:'COUNT_BLUR_MISMATCH'};
           }
           case 'UPDATE':return click(inDialog('Cập Nhật'));
-          case 'YES': {
-            const d=dialog();const r=click(inDialog('Có'));
-            if(r.ok)previousYesDialog=d;
-            return r;
-          }
+          case 'YES':return click(inDialog('Có'));
           case 'NO': {
-            if(dialog()===previousYesDialog)return {ok:false,reason:'DIALOG_NOT_CHANGED'};
+            // The first Yes/No dialog and the outbound-slip question may share
+            // the same DOM node. Only click No on the confirmed slip question.
+            if(!outboundSlipPrompt())return {ok:false,reason:'OUTBOUND_SLIP_PROMPT_MISMATCH'};
             return click(inDialog('Không'));
           }
           case 'PRINT':return click(printButtons());
