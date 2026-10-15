@@ -200,6 +200,10 @@ public sealed class MainForm : Form
         _displayDate=DateTime.Today;
         _history.Rows.Clear();
         var today=_store.FilterHistory(_displayDate,_displayDate);
+        // Counts are non-sensitive; exported logs now show whether records were loaded
+        // and selected by the daily view, without exposing business data.
+        _store.Trace("HISTORY","DISPLAY_COUNTS","DONE",0,
+            "TODAY="+today.Count+";READ_ERROR="+(_store.HistoryReadFailed?1:0));
         foreach(var r in today.Reverse().Take(500))
             _history.Rows.Add(r.Date,r.Start,r.End,r.Seconds,r.Person,r.SO,r.DO,LocalStore.ResultLabel(r.Result));
         _historyHeading.Text="LỊCH SỬ HÔM NAY  |  "+_displayDate.ToString("dd/MM/yyyy")+"  |  "+today.Count+" lượt";
@@ -277,7 +281,7 @@ public sealed class MainForm : Form
         var attemptId=Guid.NewGuid().ToString("N").ToUpperInvariant();
         string so="",doCode="";var success=false;var resultCode="UNCERTAIN_CHECK_WMS";
         HistoryRow Snapshot(string phase,string result) => new HistoryRow(
-            started.ToString("dd/MM/yyyy"),started.ToString("HH:mm:ss"),
+            LocalStore.FormatHistoryDate(started),started.ToString("HH:mm:ss"),
             DateTime.Now.ToString("HH:mm:ss"),(long)Math.Round(_watch.Elapsed.TotalSeconds),
             person,so,doCode,result){AttemptId=attemptId,Phase=phase};
         void Checkpoint(string phase)
@@ -520,9 +524,14 @@ public sealed class MainForm : Form
         if(dialog.ShowDialog(this)!=DialogResult.OK)return;
         try
         {
+            var rows=_store.FilterHistory(start,end,filter).Count;
             _store.ExportHistoryXlsx(dialog.FileName,start,end,filter);
-            _store.Trace("EXPORT","HISTORY_XLSX","DONE");
-            MessageBox.Show(this,"Đã xuất lịch sử Excel theo bộ lọc đã chọn.");
+            _store.Trace("EXPORT","HISTORY_XLSX","DONE",0,"ROWS="+rows);
+            MessageBox.Show(this,rows>0
+                ?"Đã xuất "+rows+" dòng lịch sử Excel theo bộ lọc đã chọn."
+                :"File Excel không có dòng dữ liệu phù hợp. Kiểm tra ngày và bộ lọc đã chọn. Nếu đã có lượt xử lý, hãy xuất log để kiểm tra.",
+                rows>0?"Xuất lịch sử thành công":"Chưa tìm thấy dữ liệu lịch sử",
+                MessageBoxButtons.OK,rows>0?MessageBoxIcon.Information:MessageBoxIcon.Warning);
         }
         catch
         {
