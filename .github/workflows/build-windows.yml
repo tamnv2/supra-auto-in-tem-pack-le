@@ -43,6 +43,11 @@ jobs:
           dotnet publish ./SupraAutoPackLe.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:Version=$version -o publish
           if ($LASTEXITCODE -ne 0) { throw 'PUBLISH_FAILED' }
           if (!(Test-Path publish/SupraAutoPackLe.exe)) { throw 'EXE_MISSING' }
+      - name: Verify EXE start and XLSX/local-log smoke
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath (Resolve-Path 'publish/SupraAutoPackLe.exe').Path -ArgumentList '--startup-smoke' -PassThru -Wait -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "SMOKE_FAILED_CODE_$($p.ExitCode)" }
       - name: Package and checksum
         shell: pwsh
         run: |
