@@ -50,11 +50,12 @@ jobs:
 
   publish-release:
     needs: build-windows
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: SupraAutoPackLe-win-x64
@@ -63,4 +64,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" output/SupraAutoPackLe-win-x64.zip output/SupraAutoPackLe-win-x64.zip.sha256 --repo "$GITHUB_REPOSITORY" --title "SUPRA Auto In Tem Pack Le $GITHUB_REF_NAME" --generate-notes
+          version=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' SupraAutoPackLe.csproj | head -n 1)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "INVALID_VERSION"; exit 1; fi
+          tag="v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; no overwrite"; exit 0
+          fi
+          gh release create "$tag" output/SupraAutoPackLe-win-x64.zip output/SupraAutoPackLe-win-x64.zip.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "SUPRA Auto In Tem Pack Le $tag" --generate-notes
