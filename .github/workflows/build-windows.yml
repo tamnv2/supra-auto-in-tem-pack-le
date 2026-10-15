@@ -1,0 +1,90 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Validate embedded WMS JavaScript syntax
+        shell: pwsh
+        run: |
+          $raw = Get-Content 'WmsWorkflowJs.cs' -Raw
+          $begin = $raw.IndexOf('"""')
+          $end = $raw.LastIndexOf('"""')
+          if ($begin -lt 0 -or $end -le $begin) { throw 'EMBEDDED_JS_NOT_FOUND' }
+          $script = $raw.Substring($begin + 3, $end - $begin - 3)
+          $script | Set-Content -Path "$env:RUNNER_TEMP/wms-workflow-check.js" -Encoding utf8
+          node --check "$env:RUNNER_TEMP/wms-workflow-check.js"
+          if ($LASTEXITCODE -ne 0) { throw 'JS_SYNTAX_ERROR' }
+      - name: Build Windows x64 portable
+        shell: pwsh
+        run: |
+          $version = '1.0.0'
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $version = $env:GITHUB_REF_NAME.Substring(1) }
+          dotnet restore ./SupraAutoPackLe.csproj
+          if ($LASTEXITCODE -ne 0) { throw 'RESTORE_FAILED' }
+          dotnet publish ./SupraAutoPackLe.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:Version=$version -o publish
+          if ($LASTEXITCODE -ne 0) { throw 'PUBLISH_FAILED' }
+          if (!(Test-Path publish/SupraAutoPackLe.exe)) { throw 'EXE_MISSING' }
+      - name: Verify EXE start and XLSX/local-log smoke
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath (Resolve-Path 'publish/SupraAutoPackLe.exe').Path -ArgumentList '--startup-smoke' -PassThru -Wait -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "SMOKE_FAILED_CODE_$($p.ExitCode)" }
+      - name: Package and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force output | Out-Null
+          Compress-Archive -Path 'publish/*' -DestinationPath 'output/SupraAutoPackLe-win-x64.zip' -Force
+          $sha = (Get-FileHash 'output/SupraAutoPackLe-win-x64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  SupraAutoPackLe-win-x64.zip" | Set-Content -Encoding ascii 'output/SupraAutoPackLe-win-x64.zip.sha256'
+          Get-ChildItem output | Format-Table Name,Length
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SupraAutoPackLe-win-x64
+          path: output/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release:
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: SupraAutoPackLe-win-x64
+          path: output
+      - name: Publish immutable release files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' SupraAutoPackLe.csproj | head -n 1)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "INVALID_VERSION"; exit 1; fi
+          tag="v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; no overwrite"; exit 0
+          fi
+          gh release create "$tag" output/SupraAutoPackLe-win-x64.zip output/SupraAutoPackLe-win-x64.zip.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "SUPRA Auto In Tem Pack Le $tag" --generate-notes

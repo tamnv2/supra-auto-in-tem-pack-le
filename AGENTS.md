@@ -1,0 +1,22 @@
+# Agent instructions — SUPRA Auto In Tem Pack Lẻ
+
+Canonical repository: tamnv2/supra-auto-in-tem-pack-le. **Completely separate** from tamnv2/supra-inventory. Never import credentials, service accounts, session storage, code logic authority or real user data from the other product.
+
+Read in order before modifying:
+1. README.md
+2. docs/PROJECT_AUTHORITY.md
+3. current source files and .github/workflows/build-windows.yml
+4. latest GitHub PR and Actions logs/artifacts
+5. sanitized field logs supplied by Owner privately
+
+## Development and release
+- Branch -> PR -> Windows Actions compile PASS -> review -> merge. Ship EXE ZIP artifact for field testing; field PASS requires real Windows + WMS + printer testing, never inferred from source or CI.
+- Preserve user-approved flow: Tote scan/Enter, parcel count/Enter, staff selection confirmation, WMS browser in a separate form with manual login+printer setup and Hide/Show, guarded WMS DOM sequence, local history and diagnostics export.
+- Safety invariants: exact role/name/context target not screen coordinates or dynamic IDs; count must replace existing value then readback exact; one Tote at a time; no automatic retry of non-idempotent actions; on uncertain result stop and request manual WMS review.
+- Data: person's name and SO/DO stored ONLY in authorized local business history, not debug logs; business history XLSX; sanitized JSONL ZIP by date range; no automatic uploads.
+- Security: WMS WebView2 InPrivate per run. Absolutely no code that reads/persists/logs password, cookie, token, auth header, HTTP requests, browser storage or raw HTML. Public repo: no data dumps, real histories, private employee lists or signed builds with secrets.
+- Updates: on-demand GitHub Release asset download, checksum verification and staged replacement when idle. If Github unreachable over Office, allow manual ZIP overwrite; no polling or background update.
+- Field status: first release is trial candidate until Owner confirms on actual packing workflow. EXE compilation is not printer-output verification.
+
+## Documentation continuity
+Every new Owner decision, observation, defect and accepted fix should be recorded in docs/PROJECT_AUTHORITY.md or another dated document in this repo. Never claim completion without commit SHA, CI evidence and real field evidence levels.
