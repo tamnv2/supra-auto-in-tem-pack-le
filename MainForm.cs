@@ -26,6 +26,10 @@ public sealed class MainForm : Form
         AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.AllCells,BackgroundColor=Color.White
     };
     private readonly Color _navy=Color.FromArgb(26,43,69);
+    private readonly Label _historyHeading=new(){AutoSize=false,Dock=DockStyle.Fill,
+        Font=new Font("Segoe UI",11,FontStyle.Bold),TextAlign=ContentAlignment.MiddleLeft};
+    private DateTime _displayDate=DateTime.Today;
+    private readonly System.Windows.Forms.Timer _midnightCheck=new(){Interval=60_000};
     private List<string> _people;
     private CancellationTokenSource? _cancel;
     private bool _busy;
@@ -45,6 +49,8 @@ public sealed class MainForm : Form
         BackColor=Color.FromArgb(247,249,252);
         Compose();
         RefreshHistory();
+        _midnightCheck.Tick+=(_,_)=>{if(_displayDate!=DateTime.Today)RefreshHistory();};
+        _midnightCheck.Start();
         Status("INIT","Mở cửa sổ WMS, đăng nhập và chọn máy in trước khi dùng.");
         Shown+=async (_,_)=>{
             _browser.Reveal();
@@ -57,6 +63,8 @@ public sealed class MainForm : Form
             _tote.Focus();
         };
         FormClosing+=(_,_)=>{
+            _midnightCheck.Stop();
+            _midnightCheck.Dispose();
             _cancel?.Cancel();
             _store.Trace("APP","CLOSING",_busy?"UNCERTAIN":"OK",_watch.ElapsedMilliseconds);
             _browser.Terminate();
@@ -70,38 +78,74 @@ public sealed class MainForm : Form
     }
     private void Compose()
     {
-        var title=new Panel{Dock=DockStyle.Top,Height=65,BackColor=_navy};
-        title.Controls.Add(new Label{Text="SUPRA  |  AUTO IN TEM PACK LẺ",AutoSize=true,
-            ForeColor=Color.White,Font=new Font("Segoe UI",17,FontStyle.Bold),Location=new Point(18,14)});
-        var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Padding=new Padding(16)};
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,128));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,100));
+        var title=new Panel{Dock=DockStyle.Top,Height=62,BackColor=_navy};
+        title.Controls.Add(new Label{Text="SUPRA  |  AUTO IN TEM PACK LẺ",Dock=DockStyle.Fill,
+            Padding=new Padding(18,0,0,0),TextAlign=ContentAlignment.MiddleLeft,
+            ForeColor=Color.White,Font=new Font("Segoe UI",17,FontStyle.Bold)});
+        var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=5,Padding=new Padding(16,12,16,12)};
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,94));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,55));
         root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        var inputs=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true,Padding=new Padding(8)};
-        var t=new FlowLayoutPanel{FlowDirection=FlowDirection.TopDown,Width=340,Height=80};
-        t.Controls.Add(new Label{Text="QUÉT MÃ TOTE",AutoSize=true});
-        t.Controls.Add(_tote);inputs.Controls.Add(t);
-        var q=new FlowLayoutPanel{FlowDirection=FlowDirection.TopDown,Width=190,Height=80};
-        q.Controls.Add(new Label{Text="SỐ KIỆN",AutoSize=true});
-        q.Controls.Add(_qty);inputs.Controls.Add(q);
-        _ok.Height=54;_ok.BackColor=Color.FromArgb(25,122,78);
-        inputs.Controls.Add(_ok);root.Controls.Add(inputs,0,0);
-        var actions=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=true,Padding=new Padding(8)};
+        var inputs=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,Margin=new Padding(0,0,0,8)};
+        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,43));
+        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,22));
+        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,35));
+        var t=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1,Margin=new Padding(0,0,10,0)};
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute,24));
+        t.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        t.Controls.Add(new Label{Text="QUÉT MÃ TOTE",Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,0);
+        _tote.Dock=DockStyle.Fill;_tote.Margin=new Padding(0,0,0,6);t.Controls.Add(_tote,0,1);
+        var q=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1,Margin=new Padding(0,0,10,0)};
+        q.RowStyles.Add(new RowStyle(SizeType.Absolute,24));
+        q.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        q.Controls.Add(new Label{Text="SỐ KIỆN",Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,0);
+        _qty.Dock=DockStyle.Fill;_qty.Margin=new Padding(0,0,0,6);q.Controls.Add(_qty,0,1);
+        _ok.Dock=DockStyle.Fill;_ok.Margin=new Padding(2,16,0,6);
+        _ok.BackColor=Color.FromArgb(25,122,78);
+        inputs.Controls.Add(t,0,0);inputs.Controls.Add(q,1,0);inputs.Controls.Add(_ok,2,0);
+        root.Controls.Add(inputs,0,0);
+        var actions=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=false,
+            FlowDirection=FlowDirection.LeftToRight,Margin=new Padding(0),Padding=new Padding(0,6,0,2)};
         actions.Controls.AddRange([_peopleButton,_show,_hide,_stop,_recover,_update]);
         root.Controls.Add(actions,0,1);
-        var feedback=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1};
-        feedback.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
-        feedback.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        feedback.Controls.Add(_status,0,0);
-        var exports=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=true};
-        exports.Controls.AddRange([_exportXlsx,_exportLog]);
-        feedback.Controls.Add(exports,0,1);
-        root.Controls.Add(feedback,0,2);
-        root.Controls.Add(_history,0,3);
+        _status.Dock=DockStyle.Fill;_status.Height=46;_status.AutoSize=false;
+        _status.Padding=new Padding(12,0,8,0);_status.TextAlign=ContentAlignment.MiddleLeft;
+        _status.BackColor=Color.White;_status.Margin=new Padding(0,2,0,7);
+        root.Controls.Add(_status,0,2);
+        var historyToolbar=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Margin=new Padding(0)};
+        historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+        historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,330));
+        historyToolbar.Controls.Add(_historyHeading,0,0);
+        var exports=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,
+            FlowDirection=FlowDirection.RightToLeft,Margin=new Padding(0)};
+        _exportXlsx.Width=175;_exportLog.Width=125;
+        exports.Controls.AddRange([_exportLog,_exportXlsx]);
+        historyToolbar.Controls.Add(exports,1,0);
+        root.Controls.Add(historyToolbar,0,3);
+        _history.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;
+        _history.BackgroundColor=Color.White;
+        _history.BorderStyle=BorderStyle.FixedSingle;
+        _history.RowHeadersVisible=false;
+        _history.SelectionMode=DataGridViewSelectionMode.FullRowSelect;
+        _history.MultiSelect=false;
+        _history.ColumnHeadersHeight=38;
+        _history.ColumnHeadersHeightSizeMode=DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+        _history.RowTemplate.Height=32;
+        _history.EnableHeadersVisualStyles=false;
+        _history.ColumnHeadersDefaultCellStyle.BackColor=_navy;
+        _history.ColumnHeadersDefaultCellStyle.ForeColor=Color.White;
+        _history.ColumnHeadersDefaultCellStyle.Font=new Font("Segoe UI",10,FontStyle.Bold);
+        _history.AlternatingRowsDefaultCellStyle.BackColor=Color.FromArgb(244,247,251);
+        _history.DefaultCellStyle.SelectionBackColor=Color.FromArgb(215,228,244);
+        _history.DefaultCellStyle.SelectionForeColor=Color.FromArgb(20,36,55);
+        root.Controls.Add(_history,0,4);
         Controls.Add(root);Controls.Add(title);
         var columns=new[]{"Ngày","Bắt đầu","Kết thúc","Giây","Nhân sự","Mã SO","Mã DO","Kết quả"};
         foreach(var item in columns)_history.Columns.Add(item,item);
+        var weights=new float[]{13,10,10,6,13,13,13,22};
+        for(var i=0;i<weights.Length;i++){_history.Columns[i].FillWeight=weights[i];_history.Columns[i].MinimumWidth=i==7?175:65;}
         _tote.KeyDown+=(_,e)=>{if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;_qty.Focus();_qty.SelectAll();}};
         _qty.KeyDown+=async (_,e)=>{if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;await OnSubmitAsync();}};
         _ok.Click+=async (_,_)=>await OnSubmitAsync();
@@ -140,14 +184,24 @@ public sealed class MainForm : Form
     private void Status(string stage,string message)
     {
         _stage=stage;
-        _status.Text="Trạng thái ["+stage+"]  "+message;
+        var title=stage switch
+        {
+            "INIT"=>"Khởi tạo","READY"=>"Sẵn sàng","FAULT"=>"Cần kiểm tra WMS",
+            "TOTE"=>"Nhập Tote","PACK"=>"Đóng gói","QUANTITY"=>"Số kiện",
+            "UPDATE"=>"Xác nhận","PRINT"=>"In nhãn","FINISH"=>"Hoàn tất",
+            "RETURN"=>"Chờ màn hình quét",_=>stage
+        };
+        _status.Text="TRẠNG THÁI: "+title+"  |  "+message;
         _store.Trace(stage,"STAGE_CHANGED","OK",_watch.ElapsedMilliseconds);
     }
     private void RefreshHistory()
     {
+        _displayDate=DateTime.Today;
         _history.Rows.Clear();
-        foreach(var r in _store.History().TakeLast(150).Reverse())
-            _history.Rows.Add(r.Date,r.Start,r.End,r.Seconds,r.Person,r.SO,r.DO,r.Result);
+        var today=_store.FilterHistory(_displayDate,_displayDate);
+        foreach(var r in today.Reverse().Take(500))
+            _history.Rows.Add(r.Date,r.Start,r.End,r.Seconds,r.Person,r.SO,r.DO,LocalStore.ResultLabel(r.Result));
+        _historyHeading.Text="LỊCH SỬ HÔM NAY  |  "+_displayDate.ToString("dd/MM/yyyy")+"  |  "+today.Count+" lượt";
     }
     private static string Summary(BrowserPeek? p) => p==null?"NO_SNAPSHOT":
         $"T={p.toteCount};P={p.packCount};Q={p.qtyCount};U={p.updateCount};R={p.printCount};L={p.printLabelCount};F={p.finishCount};Y={p.yesCount};N={p.noCount};D={p.dialogCount}";
@@ -332,11 +386,44 @@ public sealed class MainForm : Form
     }
     private void ExportXlsx()
     {
+        using var f=new Form{Text="Bộ lọc xuất lịch sử Excel",Width=480,Height=292,
+            MinimumSize=new Size(480,292),StartPosition=FormStartPosition.CenterParent,
+            FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false};
+        var mode=new ComboBox{Left=18,Top=20,Width=420,DropDownStyle=ComboBoxStyle.DropDownList};
+        mode.Items.AddRange(["Tất cả","Một ngày","Khoảng ngày"]);mode.SelectedIndex=1;
+        var from=new DateTimePicker{Left=18,Top=65,Width=200,Format=DateTimePickerFormat.Short,Value=DateTime.Today};
+        var to=new DateTimePicker{Left=235,Top=65,Width=200,Format=DateTimePickerFormat.Short,Value=DateTime.Today};
+        var result=new ComboBox{Left=18,Top=110,Width=420,DropDownStyle=ComboBoxStyle.DropDownList};
+        result.Items.AddRange(["Tất cả kết quả","Đã hoàn tất trên WMS","Chưa hoàn tất / cần kiểm tra"]);
+        result.SelectedIndex=0;
+        void SyncDates(){from.Enabled=mode.SelectedIndex!=0;to.Enabled=mode.SelectedIndex==2;}
+        mode.SelectedIndexChanged+=(_,_)=>SyncDates();SyncDates();
+        var ok=MakeButton("TIẾP TỤC XUẤT EXCEL",215);ok.Left=18;ok.Top=164;
+        ok.Click+=(_,_)=>{
+            if(mode.SelectedIndex==2&&to.Value.Date<from.Value.Date)
+            {MessageBox.Show(f,"Ngày kết thúc không được trước ngày bắt đầu.");return;}
+            f.DialogResult=DialogResult.OK;f.Close();
+        };
+        f.Controls.AddRange([mode,from,to,result,ok]);
+        if(f.ShowDialog(this)!=DialogResult.OK)return;
+        DateTime? start=mode.SelectedIndex==0?null:from.Value.Date;
+        DateTime? end=mode.SelectedIndex==0?null:mode.SelectedIndex==1?from.Value.Date:to.Value.Date;
+        var filter=result.SelectedIndex switch{1=>"COMPLETED",2=>"INCOMPLETE",_=>"ALL"};
         using var dialog=new SaveFileDialog{Title="Xuất lịch sử XLSX",
-            Filter="Excel Workbook (*.xlsx)|*.xlsx",FileName="SUPRA_Lich_Su_In_Tem_"+DateTime.Now.ToString("yyyyMMdd")+".xlsx"};
+            Filter="Excel Workbook (*.xlsx)|*.xlsx",
+            FileName="SUPRA_Lich_Su_In_Tem_"+DateTime.Now.ToString("yyyyMMdd_HHmmss")+".xlsx"};
         if(dialog.ShowDialog(this)!=DialogResult.OK)return;
-        try{_store.ExportHistoryXlsx(dialog.FileName);_store.Trace("EXPORT","HISTORY_XLSX","DONE");MessageBox.Show("Đã xuất XLSX.");}
-        catch{_store.Trace("EXPORT","HISTORY_XLSX","ERROR");MessageBox.Show("Xuất lịch sử thất bại. Kiểm tra file Excel có đang mở không.");}
+        try
+        {
+            _store.ExportHistoryXlsx(dialog.FileName,start,end,filter);
+            _store.Trace("EXPORT","HISTORY_XLSX","DONE");
+            MessageBox.Show(this,"Đã xuất lịch sử Excel theo bộ lọc đã chọn.");
+        }
+        catch
+        {
+            _store.Trace("EXPORT","HISTORY_XLSX","ERROR");
+            MessageBox.Show(this,"Xuất lịch sử thất bại. Kiểm tra file Excel có đang mở không.");
+        }
     }
     private void ExportLogs()
     {
