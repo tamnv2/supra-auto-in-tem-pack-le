@@ -71,3 +71,12 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Mở rộng `HistoryRow` bằng các trường nullable SkuCount, ParcelCount, Pcs, Points để đọc/ghi tương thích bản cũ, xuất Excel và hiển thị lịch sử. ParcelCount lấy trực tiếp **số kiện nhân viên nhập trong ứng dụng**, kể cả lượt bị dừng; chưa phải số kiện độc lập được WMS xác minh. Số SKU, Pcs, Điểm chưa có logic WMS từ Owner: để null, không tự bịa số và không ghi 0 thay null.
 - Tab `Sản lượng hôm nay` sử dụng đúng lịch sử đã ghi trong LocalStore: số lượt, số DO duy nhất hoàn tất theo người, các lượt cần kiểm tra, tổng/ trung vị thời gian xử lý **chỉ trong lượt hoàn tất**. Điểm chỉ cộng những lượt có điểm, kèm số lượng được ghi nhận; trống phải hiển thị `Chưa có dữ liệu`. Không suy luận số giờ làm việc, không xếp hạng năng suất từ dữ liệu chưa đầy đủ.
 - CI: test popup quầy, máy in, URL không hợp lệ, lịch sử null tương thích, DO dedup, điểm và XLSX. Build PASS không chứng minh WMS automation trên mạng Office: Owner phải thử nghiệm thật.
+
+## v1.5.1 — Bố cục dễ đọc và khôi phục trình duyệt (17/10/2026)
+
+- Mở ứng dụng chọn sẵn tab Trình duyệt WMS ngay từ lần hiển thị đầu tiên; các tab còn lại vẫn truy cập bình thường.
+- Vẽ tab chỉ một dòng: Sản lượng / Thông tin là nhãn rút gọn trên thanh tab, trang đầy đủ vẫn mang tên Sản lượng hôm nay / Thông tin phần mềm.
+- Tab Sản lượng: thay bản tóm tắt đa dòng dễ cắt chữ bằng tám thẻ thông tin, lưới và ô hướng dẫn cuộn; gọi chỉ số median là "Thời gian ở giữa". Công thức thống kê không đổi: giá trị đứng giữa khi sắp xếp lượt, nếu chẵn lấy trung bình hai giá trị giữa. Không chuyển thành số trung bình cộng của cả ngày.
+- Tab Thông tin: sáu khung nội dung rõ ràng có thanh cuộn riêng; vị trí điều khiển quản lý tài khoản Windows và xóa trình duyệt ở phía trên, không ẩn cuối trang.
+- Nút XÓA DỮ LIỆU TRÌNH DUYỆT chỉ khả dụng khi không có lượt Tote đang chạy; cần hộp thoại xác nhận nêu rõ mật khẩu, cookie, dữ liệu trang sẽ bị xóa. Gọi API WebView2 profile ClearBrowsingDataAsync() (không đọc mật khẩu/cookie/token) rồi mở lại WMS; phải đăng nhập, xác nhận quầy và máy in lần nữa. Nếu thất bại thông báo rõ, không coi như đã xóa. Không được xóa LocalStore/history.jsonl, people.json hoặc logs.
+- Không thêm quyền admin, không làm thay đổi bản ghi lịch sử hay quy trình in nhãn. Windows CI + kiểm thử thủ công ở máy công ty mới xác nhận giao diện / việc xóa profile thực tế.
