@@ -52,6 +52,25 @@ public sealed class MainForm : Form
     {
         _people=_store.LoadPeople();
         _browser=new WmsBrowser(_store,()=>_tabs.SelectedTab=_webTab);
+        _browser.LoginRequired+=()=>
+        {
+            if(!_setupDone||IsDisposed)return;
+            _setupDone=false;
+            _printerVerified=false;
+            _browser.BeginStartupRouting();
+            if(_busy)
+            {
+                _needsRecovery=true;
+                Status("FAULT","Phiên WMS chuyển sang đăng nhập khi đang xử lý. Phải kiểm tra WMS thủ công.");
+            }
+            else
+            {
+                Status("INIT","WMS yêu cầu đăng nhập lại. Chờ thiết lập quầy và máy in.");
+                _=RunInitialSetupAsync();
+            }
+            _browser.Reveal();
+            UpdateControls();
+        };
         Text="WMS Packing & Productivity Assistant | "+Application.ProductVersion;
         Font=new Font("Segoe UI",10);
         MinimumSize=new Size(1040,675);Width=1380;Height=850;
@@ -242,7 +261,7 @@ public sealed class MainForm : Form
         foreach(var (name,width) in new (string,int)[]{
             ("Nhân sự",195),("DO hoàn tất",132),("Lượt hoàn tất",132),("Cần kiểm tra",132),
             ("Điểm ghi nhận",142),("Có điểm / lượt",145),("Tổng xử lý",143),
-            ("Trung vị / lượt",145),("Bắt đầu",110),("Kết thúc",110)})
+            ("Trung vị / lượt",145),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
         {
             var column=new DataGridViewTextBoxColumn{HeaderText=name,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable};
             _productionGrid.Columns.Add(column);
@@ -274,7 +293,9 @@ public sealed class MainForm : Form
                 p.ScoredAttempts+"/"+p.Completed,
                 TimeSpan.FromSeconds(p.ProcessingSeconds).ToString(@"hh\:mm\:ss"),
                 p.MedianSeconds.HasValue?p.MedianSeconds.Value+" giây":"—",
-                p.FirstStart,p.LastEnd);
+                p.FirstStart,p.LastEnd,
+                p.NeedsReview>0?"Có "+p.NeedsReview+" lượt cần xác minh WMS":
+                p.Completed>0?"Các lượt đã ghi nhận đều hoàn tất UI":"Chưa có lượt hoàn tất");
         }
     }
 
