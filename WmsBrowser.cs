@@ -24,6 +24,19 @@ internal sealed class BrowserPeek
     public string so {get;set;}="";
     [JsonPropertyName("do")] public string Do {get;set;}="";
 }
+internal sealed class BrowserSetupPeek
+{
+    public bool ok {get;set;}
+    public string reason {get;set;}="";
+    public bool boothDialog {get;set;}
+    public bool printerDialog {get;set;}
+    public bool packingReady {get;set;}
+    public int accountTriggerCount {get;set;}
+    public bool settingsVisible {get;set;}
+    public bool printerSelected {get;set;}
+    public bool printerEmpty {get;set;}
+    public bool printerOptionVisible {get;set;}
+}
 internal sealed class BrowserResult
 {
     public bool ok {get;set;}
@@ -37,6 +50,8 @@ internal sealed class WmsBrowser : UserControl
     private readonly LocalStore _storage;
     private readonly string _profile;
     private readonly Action _openBrowserTab;
+    private bool _startupRouting=true;
+    private int _startupRedirects;
     public bool Ready {get;private set;}
     public WmsBrowser(LocalStore storage,Action openBrowserTab)
     {
@@ -53,6 +68,7 @@ internal sealed class WmsBrowser : UserControl
     public void Terminate()
     {
         Ready=false;
+        _startupRouting=false;
         // A persistent browser profile retains site sessions and passwords by user choice.
         // This application never reads, logs or exports the profile contents.
         _view.Dispose();
@@ -82,8 +98,12 @@ internal sealed class WmsBrowser : UserControl
                     _storage.Trace("WEB","URL_BLOCKED","BLOCKED");
                 }
             };
-            core.NavigationCompleted+=(_,e)=>_storage.Trace("WEB",
-                e.IsSuccess?"NAVIGATION_DONE":"NAVIGATION_ERROR",e.IsSuccess?"OK":"ERROR");
+            core.NavigationCompleted+=(_,e)=>
+            {
+                _storage.Trace("WEB",e.IsSuccess?"NAVIGATION_DONE":"NAVIGATION_ERROR",
+                    e.IsSuccess?"OK":"ERROR");
+                if(e.IsSuccess)TryNavigatePackingAfterLogin();
+            };
             core.ProcessFailed+=(_,_)=>{Ready=false;_storage.Trace("WEB","PROCESS_FAILED","ERROR");};
             core.NewWindowRequested+=(_,e)=>{
                 // Do not allow uncontrolled popup navigation to external endpoints.
@@ -105,6 +125,46 @@ internal sealed class WmsBrowser : UserControl
         if(uri.Scheme!="https")return false;
         return uri.Host.Equals("wms-supra.winmart.vn",StringComparison.OrdinalIgnoreCase)||
                uri.Host.Equals("auth-supra.winmart.vn",StringComparison.OrdinalIgnoreCase);
+    }
+    // Only redirect from a loaded, authenticated WMS application route, never from
+    // the login host, password form or any non-WMS site. Bounded per startup.
+    public void TryNavigatePackingAfterLogin()
+    {
+        if(!_startupRouting||_startupRedirects>=3)return;
+        var core=_view.CoreWebView2;
+        if(core==null || !Uri.TryCreate(core.Source,UriKind.Absolute,out var uri))return;
+        if(!uri.Scheme.Equals("https",StringComparison.OrdinalIgnoreCase) ||
+           !uri.Host.Equals("wms-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) ||
+           !uri.AbsolutePath.StartsWith("/sft3/app/",StringComparison.OrdinalIgnoreCase) ||
+           uri.AbsolutePath.TrimEnd('/').Equals("/sft3/app/saleorder/packing",StringComparison.OrdinalIgnoreCase))
+            return;
+        _startupRedirects++;
+        _storage.Trace("SETUP","RETURN_PACKING_ROUTE","OK");
+        core.Navigate(Target);
+    }
+    public void StopStartupRouting()=>_startupRouting=false;
+    public async Task<BrowserSetupPeek?> SetupPeekAsync()
+    {
+        if(!Ready||_view.CoreWebView2==null)return null;
+        try
+        {
+            var raw=await _view.CoreWebView2.ExecuteScriptAsync(
+                "window.__supraPackLeV1?.setupPeek() || {ok:false,reason:'NO_SCRIPT'}");
+            return JsonSerializer.Deserialize<BrowserSetupPeek>(raw);
+        }
+        catch { return null; }
+    }
+    public async Task<BrowserResult> SetupActionAsync(string action)
+    {
+        if(!Ready||_view.CoreWebView2==null)return new(){reason="WEB_NOT_READY"};
+        try
+        {
+            var script="window.__supraPackLeV1?.setupPerform("+
+                JsonSerializer.Serialize(action)+") || {ok:false,reason:'NO_SCRIPT'}";
+            var raw=await _view.CoreWebView2.ExecuteScriptAsync(script);
+            return JsonSerializer.Deserialize<BrowserResult>(raw)??new(){reason="INVALID_SCRIPT_RESULT"};
+        }
+        catch { return new(){reason="SCRIPT_CALL_FAILED"}; }
     }
     public async Task<BrowserPeek?> PeekAsync()
     {
