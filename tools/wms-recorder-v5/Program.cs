@@ -117,6 +117,10 @@ internal sealed class RecorderForm : Form
             core.WebMessageReceived += (_,e) => Receive(e);
             core.NavigationStarting += (_,e) => { if(_active) Record("navigation_started",new { page=SafePath(e.Uri) }); };
             core.NavigationCompleted += async (_,e) => {
+                // AddScriptToExecuteOnDocumentCreatedAsync is not guaranteed for NavigateToString.
+                // Ensure listeners are attached to the completed live document as well.
+                try { await _web.ExecuteScriptAsync(CaptureScript); }
+                catch { /* page may have already navigated away */ }
                 _status.Text=e.IsSuccess ? (_active ? "ĐANG GHI · WMS sẵn sàng thao tác." :
                     "Đã tải trang. Đăng nhập, đến bước nhập quầy rồi bấm BẮT ĐẦU GHI.")
                     : "Không tải được trang WMS. Kiểm tra mạng và đăng nhập.";
@@ -269,7 +273,8 @@ internal sealed class RecorderForm : Form
             {
                 string content=File.ReadAllText(source); // Export retains source for smoke assertions
                 if(!content.Contains("web_click") || !content.Contains("Thiết lập máy in"))
-                    throw new InvalidOperationException("Smoke failed: browser DOM click missing in trace.");
+                    throw new InvalidOperationException("Smoke failed: browser DOM click missing. Events: "+
+                        content[..Math.Min(content.Length,1700)]);
                 string? marker=Environment.GetEnvironmentVariable("SUPRA_SMOKE_RESULT");
                 if(!string.IsNullOrWhiteSpace(marker))File.WriteAllText(marker,"PASS "+result);
                 _smokeTimer?.Stop();
@@ -308,6 +313,8 @@ internal sealed class RecorderForm : Form
         {
             if(_active || _finishing)return;
             await StartRecordingAsync();
+            string state=await _web.ExecuteScriptAsync("JSON.stringify({loaded:!!window.__supraRecorderReady,hasButton:!!document.getElementById('check-printer'),bridge:!!window.chrome?.webview})");
+            Record("smoke_state",new { state });
             await _web.ExecuteScriptAsync("document.getElementById('check-printer').click()");
             await Task.Delay(550);
             await StopRecordingAsync();
