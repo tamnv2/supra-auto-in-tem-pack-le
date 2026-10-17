@@ -12,6 +12,11 @@ internal sealed record HistoryRow(string Date, string Start, string End, long Se
     // An attempt is written at multiple checkpoints; older JSONL entries omit both fields.
     public string AttemptId { get; init; } = "";
     public string Phase { get; init; } = "";
+    // Nullable because earlier releases and future WMS-derived fields lack this data.
+    public int? SkuCount { get; init; }
+    public int? ParcelCount { get; init; }
+    public int? Pcs { get; init; }
+    public decimal? Points { get; init; }
 }
 internal sealed record DiagRow(string At, string Version, string Stage, string Event, string Outcome, long ElapsedMs, string Detail);
 
@@ -227,7 +232,7 @@ internal sealed class LocalStore
     {
         using var wb=new XLWorkbook();
         var ws=wb.AddWorksheet("Lịch sử in tem");
-        string[] header=["Ngày","Bắt đầu","Kết thúc","Thời gian (giây)","Nhân sự","Mã SO","Mã DO","Kết quả"];
+        string[] header=["Ngày","Bắt đầu","Kết thúc","Thời gian xử lí (giây)","Nhân sự","Mã SO","Mã DO","Số SKU","Số kiện","Pcs","Kết quả","Điểm"];
         for(var i=0;i<header.Length;i++)ws.Cell(1,i+1).Value=header[i];
         var index=2;
         foreach(var row in FilterHistory(from,to,resultFilter))
@@ -239,7 +244,11 @@ internal sealed class LocalStore
             ws.Cell(index,5).Value=SafeExcel(row.Person);
             ws.Cell(index,6).Value=SafeExcel(row.SO);
             ws.Cell(index,7).Value=SafeExcel(row.DO);
-            ws.Cell(index,8).Value=SafeExcel(ResultLabel(row.Result));
+            ws.Cell(index,8).Value=row.SkuCount.HasValue ? row.SkuCount.Value.ToString(CultureInfo.InvariantCulture) : "Chưa có dữ liệu";
+            ws.Cell(index,9).Value=row.ParcelCount.HasValue ? row.ParcelCount.Value.ToString(CultureInfo.InvariantCulture) : "Chưa có dữ liệu";
+            ws.Cell(index,10).Value=row.Pcs.HasValue ? row.Pcs.Value.ToString(CultureInfo.InvariantCulture) : "Chưa có dữ liệu";
+            ws.Cell(index,11).Value=SafeExcel(ResultLabel(row.Result));
+            ws.Cell(index,12).Value=row.Points.HasValue ? row.Points.Value.ToString(CultureInfo.InvariantCulture) : "Chưa có dữ liệu";
             index++;
         }
         ws.Range(1,1,1,header.Length).Style.Font.Bold=true;
