@@ -11,9 +11,9 @@ const project=read('SupraAutoPackLe.csproj');
 const workflow=read('.github/workflows/build-windows.yml');
 
 // One embedded browser remains attached across WinForms TabPage changes.
-assert.match(main,/new TabPage\("NGHIỆP VỤ"\)/);
-assert.match(main,/new TabPage\("TRÌNH DUYỆT WMS"\)/);
-assert.match(main,/new TabPage\("THÔNG TIN PHẦN MỀM"\)/);
+assert.match(main,/_operationTab=new\("NGHIỆP VỤ"\)/);
+assert.match(main,/_webTab=new\("TRÌNH DUYỆT WMS"\)/);
+assert.match(main,/_aboutTab=new\("THÔNG TIN PHẦN MỀM"\)/);
 assert.match(main,/_webTab\.Controls\.Add\(_browser\)/);
 assert.match(main,/_operationTab\.Controls\.Add\(root\)/);
 assert.match(main,/_tabs\.SelectedTab=_webTab/);
