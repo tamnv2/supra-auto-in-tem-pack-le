@@ -72,7 +72,7 @@ internal static class WmsWorkflowJs
         .filter(enabled)) : null;
       const printerOption=()=>Array.from(document.querySelectorAll('mat-option,[role="option"]'))
         .filter(enabled).filter(e=>name(e)==='21-1129-D29 (Online)');
-      const setupActions=()=>Array.from(document.querySelectorAll('button,[role="button"],a,[role="menuitem"]'))
+      const setupActions=()=>Array.from(document.querySelectorAll('button,[role="button"],a,[role="menuitem"],.dropdown-toggle,[aria-haspopup="menu"]'))
         .filter(enabled);
       const printerMenuItem=()=>setupActions().filter(e=>name(e)==='Thiết lập máy in');
       const accountTriggers=()=>{
