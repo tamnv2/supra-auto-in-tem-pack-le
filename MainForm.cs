@@ -170,9 +170,21 @@ public sealed class MainForm : Form
         _ok.BackColor=Color.FromArgb(25,122,78);
         inputs.Controls.Add(t,0,0);inputs.Controls.Add(q,1,0);inputs.Controls.Add(_ok,2,0);
         root.Controls.Add(inputs,0,0);
-        var actions=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=false,
-            FlowDirection=FlowDirection.LeftToRight,Margin=new Padding(0),Padding=new Padding(0,6,0,2)};
-        actions.Controls.AddRange([_peopleButton,_show,_stop,_recover]);
+        // Four proportional columns replace the clipping-prone fixed-width flow row.
+        // All actions remain visible at the application's supported minimum width.
+        var actions=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=4,RowCount=1,
+            Margin=new Padding(0),Padding=new Padding(0,5,0,5)};
+        foreach(var width in new float[]{20,23,23,34})
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,width));
+        actions.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var actionButtons=new[]{_peopleButton,_show,_stop,_recover};
+        for(var i=0;i<actionButtons.Length;i++)
+        {
+            actionButtons[i].Dock=DockStyle.Fill;
+            actionButtons[i].Margin=new Padding(4,3,4,3);
+            actionButtons[i].AutoSize=false;
+            actions.Controls.Add(actionButtons[i],i,0);
+        }
         root.Controls.Add(actions,0,1);
         _status.Dock=DockStyle.Fill;_status.Height=46;_status.AutoSize=false;
         _status.Padding=new Padding(12,0,8,0);_status.TextAlign=ContentAlignment.MiddleLeft;
@@ -182,10 +194,16 @@ public sealed class MainForm : Form
         historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
         historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,365));
         historyToolbar.Controls.Add(_historyHeading,0,0);
-        var exports=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,
-            FlowDirection=FlowDirection.RightToLeft,Margin=new Padding(0)};
-        _exportXlsx.Width=206;_exportLog.Width=145;
-        exports.Controls.AddRange([_exportLog,_exportXlsx]);
+        var exports=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+            Margin=new Padding(0)};
+        exports.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,62));
+        exports.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,38));
+        exports.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        _exportXlsx.Text="XUẤT EXCEL";
+        _exportXlsx.Dock=DockStyle.Fill;_exportLog.Dock=DockStyle.Fill;
+        _exportXlsx.Margin=new Padding(4);_exportLog.Margin=new Padding(4);
+        exports.Controls.Add(_exportXlsx,0,0);
+        exports.Controls.Add(_exportLog,1,0);
         historyToolbar.Controls.Add(exports,1,0);
         root.Controls.Add(historyToolbar,0,3);
         _history.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;
