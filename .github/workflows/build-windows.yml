@@ -48,6 +48,11 @@ jobs:
         run: |
           node tests/v1.4-architecture.cjs
           if ($LASTEXITCODE -ne 0) { throw 'ARCHITECTURE_GUARD_FAILED' }
+      - name: Layout and browser reset regression
+        shell: pwsh
+        run: |
+          node tests/v1.5.1-layout-reset.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'LAYOUT_RESET_REGRESSION_FAILED' }
       - name: Build Windows x64 portable
         shell: pwsh
         run: |
