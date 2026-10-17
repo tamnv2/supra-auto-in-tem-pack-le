@@ -3,11 +3,12 @@
 Canonical repository: tamnv2/supra-auto-in-tem-pack-le. **Completely separate** from tamnv2/supra-inventory. Never import credentials, service accounts, session storage, code logic authority or real user data from the other product.
 
 Read in order before modifying:
-1. README.md
-2. docs/PROJECT_AUTHORITY.md
-3. current source files and .github/workflows/build-windows.yml
-4. latest GitHub PR and Actions logs/artifacts
-5. sanitized field logs supplied by Owner privately
+1. **docs/HANDOFF_2026-10-17.md — current decisions, status, field-validation backlog (highest priority over superseded historical lines)**
+2. README.md
+3. docs/PROJECT_AUTHORITY.md (chronological history; older instructions may be superseded)
+4. current source files and .github/workflows/build-windows.yml
+5. latest GitHub PR and Actions logs/artifacts
+6. sanitized field logs supplied by Owner privately
 
 ## Development and release
 - Branch -> PR -> Windows Actions compile PASS -> review -> merge. Ship EXE ZIP artifact for field testing; field PASS requires real Windows + WMS + printer testing, never inferred from source or CI.

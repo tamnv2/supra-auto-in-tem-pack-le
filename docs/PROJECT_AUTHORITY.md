@@ -1,5 +1,8 @@
 # SUPRA Auto In Tem Pack Lẻ — Canonical Project Context
 
+> **TRẠNG THÁI HIỆN TẠI / QUY TẮC ƯU TIÊN (17/10/2026):** Đọc [HANDOFF_2026-10-17.md](HANDOFF_2026-10-17.md) trước. File này là nhật ký lịch sử và có **quyết định cũ đã bị thay thế**: cửa sổ WMS riêng/InPrivate, tự cập nhật mạng, không chọn mặc định nhân sự, tên tab/giao diện cũ. **Không khôi phục những thiết kế cũ khi xử lý phiên bản v1.5.1 trở đi.**
+
+
 Owner quyết định 2026-10-15: tách sang repo \`tamnv2/supra-auto-in-tem-pack-le\`, độc lập với Inventory/Agent. Không copy credential/token hay dữ liệu thật sang repo public.
 
 ## Chu trình
@@ -80,3 +83,11 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Tab Thông tin: sáu khung nội dung rõ ràng có thanh cuộn riêng; vị trí điều khiển quản lý tài khoản Windows và xóa trình duyệt ở phía trên, không ẩn cuối trang.
 - Nút XÓA DỮ LIỆU TRÌNH DUYỆT chỉ khả dụng khi không có lượt Tote đang chạy; cần hộp thoại xác nhận nêu rõ mật khẩu, cookie, dữ liệu trang sẽ bị xóa. Gọi API WebView2 profile ClearBrowsingDataAsync() (không đọc mật khẩu/cookie/token) rồi mở lại WMS; phải đăng nhập, xác nhận quầy và máy in lần nữa. Nếu thất bại thông báo rõ, không coi như đã xóa. Không được xóa LocalStore/history.jsonl, people.json hoặc logs.
 - Không thêm quyền admin, không làm thay đổi bản ghi lịch sử hay quy trình in nhãn. Windows CI + kiểm thử thủ công ở máy công ty mới xác nhận giao diện / việc xóa profile thực tế.
+
+
+## Checkpoint bàn giao chat — 17/10/2026
+
+- Xác minh trên GitHub: main/release hiện hành **v1.5.1 @ acf887fef987e0ea82d16ccc6309dee720ba59a4**, Windows Actions #38993922174 PASS; phát hành ZIP và SHA256 có sẵn. 
+- Đã ghi toàn bộ yêu cầu, quyết định v1.0–v1.5.1, thay đổi, trạng thái bằng chứng, an toàn dữ liệu, tồn đọng và quy trình tiếp nhận ở **[HANDOFF_2026-10-17.md](HANDOFF_2026-10-17.md)**. 
+- Không thay đổi code hoặc phát hành EXE mới trong lần bàn giao tài liệu này. 
+- Cần Owner kiểm thử trên WMS/mạng Office/thiết bị thực tế và gửi ảnh/log đã làm sạch để xác minh; không được suy diễn field PASS chỉ từ CI.

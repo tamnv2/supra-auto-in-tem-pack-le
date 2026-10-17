@@ -1,10 +1,16 @@
 # WMS Packing & Productivity Assistant
 
+## Tài liệu bàn giao cho chat tiếp theo
+
+**Nguồn trạng thái và backlog mới nhất (17/10/2026): [docs/HANDOFF_2026-10-17.md](docs/HANDOFF_2026-10-17.md).** Phải đọc trước khi sửa code; các mục ở các phiên bản trước là lịch sử và có thể đã bị thay thế.
+
+
 Ứng dụng Windows độc lập **hỗ trợ đóng gói WMS và ghi nhận năng suất local**; không phải phần mềm chính thức do nhà cung cấp WMS phát hành.
 
-## Ba tab
+## Bốn tab
 - **NGHIỆP VỤ**: quét Tote, nhập số kiện, chọn nhân sự, quản lý danh sách, lịch sử và xuất XLSX/ZIP log.
 - **TRÌNH DUYỆT WMS**: WebView2 gắn trực tiếp trong cửa sổ, mở đầu tiên để đăng nhập/chọn máy in, có thể trở lại bằng tab hoặc nút Mở trình duyệt.
+- **SẢN LƯỢNG HÔM NAY**: thống kê DO duy nhất đã hoàn tất, lượt, điểm khi có dữ liệu, thời gian xử lý theo người; không coi là giờ công và không chấm điểm nếu thiếu dữ liệu.
 - **THÔNG TIN PHẦN MỀM**: công khai mục đích, dữ liệu, quyền tác động và bật/tắt tự khởi động cùng Windows.
 
 Ứng dụng **có thực hiện cập nhật số kiện, in nhãn và xác nhận hoàn tất** trong quy trình đóng gói khi người dùng khởi tạo; không sửa các thông số quản trị, phân quyền hoặc danh mục WMS. Không lặp lại thao tác in khi trạng thái không chắc chắn.
