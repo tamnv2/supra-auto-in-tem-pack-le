@@ -37,6 +37,7 @@ public sealed class MainForm : Form
     private CancellationTokenSource? _cancel;
     private bool _busy;
     private bool _needsRecovery;
+    private bool _changingStartupSetting;
     private string _stage="INIT";
     private static readonly Regex ToteFormat=new("^[A-Za-z0-9_-]{2,64}$",RegexOptions.Compiled);
     private static readonly Regex CodeFormat=new("^[A-Za-z0-9_-]{5,50}$",RegexOptions.Compiled);
@@ -229,15 +230,18 @@ public sealed class MainForm : Form
         _startWithWindows.Checked=AutoStartManager.IsEnabled();
         _startWithWindows.CheckedChanged+=(_,_)=>
         {
+            if(_changingStartupSetting)return;
             try
             {
                 AutoStartManager.SetEnabled(_startWithWindows.Checked);
             }
             catch
             {
-                _startWithWindows.Checked=AutoStartManager.IsEnabled();
+                _changingStartupSetting=true;
+                try { _startWithWindows.Checked=AutoStartManager.IsEnabled(); }
+                finally { _changingStartupSetting=false; }
                 MessageBox.Show(this,
-                    "Windows hoặc chính sách IT không cho phép thay đổi mục tự khởi động của tài khoản này.",
+                    "Không thể thay đổi tự khởi động. Có thể chính sách công ty đã giới hạn mục này.",
                     "Không thể thay đổi tự khởi động",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             }
         };
