@@ -23,7 +23,14 @@ public sealed class MainForm : Form
     private readonly TabPage _webTab=new("TRÌNH DUYỆT WMS");
     private readonly TabPage _productionTab=new("SẢN LƯỢNG HÔM NAY");
     private readonly TabPage _aboutTab=new("THÔNG TIN PHẦN MỀM");
-    private readonly Label _productionOverview=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",12,FontStyle.Bold),Padding=new Padding(12),BackColor=Color.White};
+    private readonly Label _productionOverview=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",14,FontStyle.Bold),Padding=new Padding(10,6,6,6),ForeColor=Color.FromArgb(26,43,69),TextAlign=ContentAlignment.MiddleLeft};
+    private readonly Label[] _metricCards=Enumerable.Range(0,8).Select(_=>new Label
+    {
+        Dock=DockStyle.Fill,Font=new Font("Segoe UI",11.5f,FontStyle.Bold),
+        Padding=new Padding(14,8,8,8),TextAlign=ContentAlignment.MiddleLeft,
+        BackColor=Color.White,ForeColor=Color.FromArgb(26,43,69),
+        Margin=new Padding(5)
+    }).ToArray();
     private readonly DataGridView _productionGrid=new(){Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,RowHeadersVisible=false,BackgroundColor=Color.White,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.None,ScrollBars=ScrollBars.Both};
     private readonly CheckBox _startWithWindows=new(){AutoSize=true,Text="Tự động chạy khi đăng nhập Windows"};
     private readonly Label _status=new(){AutoSize=false,Height=68,Font=new Font("Segoe UI",10,FontStyle.Bold)};
@@ -43,7 +50,9 @@ public sealed class MainForm : Form
     private bool _changingStartupSetting;
     private bool _setupDone;
     private bool _setupRunning;
+    private Task? _setupTask;
     private bool _printerVerified;
+    private bool _resettingBrowser;
     private string _stage="INIT";
     private static readonly Regex ToteFormat=new("^[A-Za-z0-9_-]{2,64}$",RegexOptions.Compiled);
     private static readonly Regex CodeFormat=new("^[A-Za-z0-9_-]{5,50}$",RegexOptions.Compiled);
@@ -54,7 +63,7 @@ public sealed class MainForm : Form
         _browser=new WmsBrowser(_store,()=>_tabs.SelectedTab=_webTab);
         _browser.LoginRequired+=()=>
         {
-            if(!_setupDone||IsDisposed)return;
+            if(!_setupDone||IsDisposed||_resettingBrowser)return;
             _setupDone=false;
             _printerVerified=false;
             _browser.BeginStartupRouting();
@@ -66,7 +75,7 @@ public sealed class MainForm : Form
             else
             {
                 Status("INIT","WMS yêu cầu đăng nhập lại. Chờ thiết lập quầy và máy in.");
-                _=RunInitialSetupAsync();
+                _setupTask=RunInitialSetupAsync();
             }
             _browser.Reveal();
             UpdateControls();
@@ -88,7 +97,7 @@ public sealed class MainForm : Form
             {
                 await _browser.InitializeAsync();
                 Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
-                _=RunInitialSetupAsync();
+                _setupTask=RunInitialSetupAsync();
             }
             catch { Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime."); }
         };
@@ -111,17 +120,26 @@ public sealed class MainForm : Form
     {
         _tabs.DrawMode=TabDrawMode.OwnerDrawFixed;
         _tabs.SizeMode=TabSizeMode.Fixed;
-        _tabs.ItemSize=new Size(245,48);
+        _tabs.ItemSize=new Size(240,50);
         _tabs.DrawItem+=(_,e)=>
         {
             var selected=e.Index==_tabs.SelectedIndex;
             var area=e.Bounds;
             using var bg=new SolidBrush(selected?_navy:Color.FromArgb(231,237,245));
-            using var ink=new SolidBrush(selected?Color.White:Color.FromArgb(30,45,68));
             e.Graphics.FillRectangle(bg,area);
-            using var font=new Font("Segoe UI",selected?11.5f:10.5f,FontStyle.Bold);
-            using var format=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center,Trimming=StringTrimming.EllipsisCharacter};
-            e.Graphics.DrawString(_tabs.TabPages[e.Index].Text,font,ink,area,format);
+            // A concise display caption prevents WinForms from wrapping/clipping on
+            // narrow screens and non-100% Windows scaling.
+            var caption=e.Index switch
+            {
+                2=>"SẢN LƯỢNG",
+                3=>"THÔNG TIN",
+                _=>_tabs.TabPages[e.Index].Text
+            };
+            using var font=new Font("Segoe UI",selected?11f:10f,FontStyle.Bold);
+            TextRenderer.DrawText(e.Graphics,caption,font,area,
+                selected?Color.White:Color.FromArgb(30,45,68),
+                TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|
+                TextFormatFlags.SingleLine|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
         };
         var title=new Panel{Dock=DockStyle.Top,Height=62,BackColor=_navy};
         title.Controls.Add(new Label{Text="WMS  |  HỖ TRỢ ĐÓNG GÓI VÀ GHI NHẬN NĂNG SUẤT",UseMnemonic=false,Dock=DockStyle.Fill,
@@ -152,9 +170,21 @@ public sealed class MainForm : Form
         _ok.BackColor=Color.FromArgb(25,122,78);
         inputs.Controls.Add(t,0,0);inputs.Controls.Add(q,1,0);inputs.Controls.Add(_ok,2,0);
         root.Controls.Add(inputs,0,0);
-        var actions=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=false,
-            FlowDirection=FlowDirection.LeftToRight,Margin=new Padding(0),Padding=new Padding(0,6,0,2)};
-        actions.Controls.AddRange([_peopleButton,_show,_stop,_recover]);
+        // Four proportional columns replace the clipping-prone fixed-width flow row.
+        // All actions remain visible at the application's supported minimum width.
+        var actions=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=4,RowCount=1,
+            Margin=new Padding(0),Padding=new Padding(0,5,0,5)};
+        foreach(var width in new float[]{20,23,23,34})
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,width));
+        actions.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var actionButtons=new[]{_peopleButton,_show,_stop,_recover};
+        for(var i=0;i<actionButtons.Length;i++)
+        {
+            actionButtons[i].Dock=DockStyle.Fill;
+            actionButtons[i].Margin=new Padding(4,3,4,3);
+            actionButtons[i].AutoSize=false;
+            actions.Controls.Add(actionButtons[i],i,0);
+        }
         root.Controls.Add(actions,0,1);
         _status.Dock=DockStyle.Fill;_status.Height=46;_status.AutoSize=false;
         _status.Padding=new Padding(12,0,8,0);_status.TextAlign=ContentAlignment.MiddleLeft;
@@ -164,10 +194,16 @@ public sealed class MainForm : Form
         historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
         historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,365));
         historyToolbar.Controls.Add(_historyHeading,0,0);
-        var exports=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,
-            FlowDirection=FlowDirection.RightToLeft,Margin=new Padding(0)};
-        _exportXlsx.Width=206;_exportLog.Width=145;
-        exports.Controls.AddRange([_exportLog,_exportXlsx]);
+        var exports=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+            Margin=new Padding(0)};
+        exports.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,62));
+        exports.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,38));
+        exports.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        _exportXlsx.Text="XUẤT EXCEL";
+        _exportXlsx.Dock=DockStyle.Fill;_exportLog.Dock=DockStyle.Fill;
+        _exportXlsx.Margin=new Padding(4);_exportLog.Margin=new Padding(4);
+        exports.Controls.Add(_exportXlsx,0,0);
+        exports.Controls.Add(_exportLog,1,0);
         historyToolbar.Controls.Add(exports,1,0);
         root.Controls.Add(historyToolbar,0,3);
         _history.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill;
@@ -193,6 +229,7 @@ public sealed class MainForm : Form
         _productionTab.Controls.Add(BuildProductionTab());
         _aboutTab.Controls.Add(BuildAboutTab());
         _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab]);
+        _tabs.SelectedTab=_webTab; // Visible on the very first frame, before async login begins.
         _tabs.SelectedIndexChanged+=(_,_)=>{
             if(_tabs.SelectedTab==_productionTab)
                 RefreshProduction(_store.FilterHistory(DateTime.Today,DateTime.Today));
@@ -241,50 +278,79 @@ public sealed class MainForm : Form
 
     private Control BuildProductionTab()
     {
-        var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,
-            Padding=new Padding(14),BackColor=Color.FromArgb(247,249,252)};
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,135));
+        var root=new TableLayoutPanel
+        {
+            Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,
+            Padding=new Padding(12,6,12,10),BackColor=Color.FromArgb(247,249,252)
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,48));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,174));
         root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,84));
-        var head=new Label{Dock=DockStyle.Fill,Font=new Font("Segoe UI",11),
-            Text="Báo cáo từ lịch sử lưu trên máy. DO chỉ tính khi vòng giao diện WMS hoàn tất. "+
-                 "Tổng thời gian xử lý KHÔNG phải tổng giờ làm việc; các khoảng nghỉ/chờ giữa các lượt không được tính. "+
-                 "Chưa có dữ liệu điểm/SKU/Pcs thì không chấm điểm hoặc xếp hạng hiệu suất.",
-            BackColor=Color.White,Padding=new Padding(14)};
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,98));
+        var metrics=new TableLayoutPanel
+        {
+            Dock=DockStyle.Fill,ColumnCount=4,RowCount=2,
+            Margin=new Padding(0),Padding=new Padding(0)
+        };
+        for(var i=0;i<4;i++)metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,25));
+        for(var i=0;i<2;i++)metrics.RowStyles.Add(new RowStyle(SizeType.Percent,50));
+        for(var i=0;i<_metricCards.Length;i++)
+            metrics.Controls.Add(_metricCards[i],i%4,i/4);
         _productionGrid.EnableHeadersVisualStyles=false;
-        _productionGrid.ColumnHeadersHeight=44;
+        _productionGrid.ColumnHeadersHeight=48;
         _productionGrid.ColumnHeadersDefaultCellStyle.BackColor=_navy;
         _productionGrid.ColumnHeadersDefaultCellStyle.ForeColor=Color.White;
-        _productionGrid.ColumnHeadersDefaultCellStyle.Font=new Font("Segoe UI",10.5f,FontStyle.Bold);
+        _productionGrid.ColumnHeadersDefaultCellStyle.Font=new Font("Segoe UI",10,FontStyle.Bold);
         _productionGrid.RowTemplate.Height=36;
         _productionGrid.SelectionMode=DataGridViewSelectionMode.FullRowSelect;
+        _productionGrid.AlternatingRowsDefaultCellStyle.BackColor=Color.FromArgb(243,247,252);
         foreach(var (name,width) in new (string,int)[]{
             ("Nhân sự",195),("DO hoàn tất",132),("Lượt hoàn tất",132),("Cần kiểm tra",132),
-            ("Điểm ghi nhận",142),("Có điểm / lượt",145),("Tổng xử lý",143),
-            ("Trung vị / lượt",145),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
+            ("Điểm ghi nhận",150),("Lượt có điểm",132),("Tổng thời gian xử lý",188),
+            ("Thời gian ở giữa",200),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
         {
-            var column=new DataGridViewTextBoxColumn{HeaderText=name,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable};
-            _productionGrid.Columns.Add(column);
+            _productionGrid.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                HeaderText=name,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable
+            });
         }
+        var explanation=new TextBox
+        {
+            Dock=DockStyle.Fill,ReadOnly=true,Multiline=true,WordWrap=true,
+            BorderStyle=BorderStyle.None,ScrollBars=ScrollBars.Vertical,
+            BackColor=Color.White,Font=new Font("Segoe UI",10.5f),TabStop=false,
+            Margin=new Padding(5,8,5,0),
+            Text="CÁCH HIỂU SỐ LIỆU"+Environment.NewLine+
+                 "DO hoàn tất chỉ tính những lượt WMS đã trở lại trang quét Tote. "+
+                 "Thời gian ở giữa là thời gian của lượt đứng giữa khi xếp các lượt từ nhanh đến chậm "+
+                 "(nếu có hai lượt ở giữa, lấy trung bình của chúng). "+
+                 "Tổng thời gian xử lý không phải thời gian của cả ca. "+
+                 "Thiếu điểm, SKU hoặc Pcs thì không tự suy đoán hay xếp hạng nhân sự."
+        };
         root.Controls.Add(_productionOverview,0,0);
-        root.Controls.Add(_productionGrid,0,1);
-        root.Controls.Add(head,0,2);
+        root.Controls.Add(metrics,0,1);
+        root.Controls.Add(_productionGrid,0,2);
+        root.Controls.Add(explanation,0,3);
         return root;
     }
     private void RefreshProduction(IReadOnlyList<HistoryRow> rows)
     {
         if(_productionGrid.Columns.Count==0)return;
         var data=DailyProduction.From(rows);
-        var points=data.Points.HasValue
-            ?data.Points.Value.ToString("0.##")+" (có điểm "+data.ScoredAttempts+"/"+data.Completed+" lượt)"
-            :"Chưa có dữ liệu";
-        _productionOverview.Text="SẢN LƯỢNG NGÀY "+DateTime.Today.ToString("dd/MM/yyyy")+
-            Environment.NewLine+"DO hoàn tất: "+data.UniqueDo+
-            "     |     Lượt hoàn tất: "+data.Completed+"/"+data.Attempts+
-            "     |     Cần kiểm tra: "+data.NeedsReview+
-            Environment.NewLine+"Điểm đã ghi nhận: "+points+
-            "     |     Tổng thời gian xử lý lượt hoàn tất: "+TimeSpan.FromSeconds(data.ProcessingSeconds).ToString(@"hh\:mm\:ss")+
-            Environment.NewLine+"Đang thống kê "+data.People.Count+" nhân sự có dữ liệu trong ngày.";
+        _productionOverview.Text="SẢN LƯỢNG NGÀY "+DateTime.Today.ToString("dd/MM/yyyy");
+        var cards=new[]
+        {
+            "DO hoàn tất"+Environment.NewLine+data.UniqueDo,
+            "Lượt hoàn tất"+Environment.NewLine+data.Completed+"/"+data.Attempts,
+            "Cần kiểm tra"+Environment.NewLine+data.NeedsReview,
+            "Điểm ghi nhận"+Environment.NewLine+(data.Points?.ToString("0.##")??"Chưa có dữ liệu"),
+            "Thời gian xử lý"+Environment.NewLine+TimeSpan.FromSeconds(data.ProcessingSeconds).ToString(@"hh\:mm\:ss"),
+            "Nhân sự có dữ liệu"+Environment.NewLine+data.People.Count,
+            "Lượt đã có điểm"+Environment.NewLine+data.ScoredAttempts+"/"+data.Completed,
+            "Chất lượng ghi nhận"+Environment.NewLine+
+                 (data.NeedsReview==0?"Không có lượt cần kiểm tra":"Cần kiểm tra WMS")
+        };
+        for(var i=0;i<_metricCards.Length;i++)_metricCards[i].Text=cards[i];
         _productionGrid.Rows.Clear();
         foreach(var p in data.People)
         {
@@ -295,99 +361,204 @@ public sealed class MainForm : Form
                 p.MedianSeconds.HasValue?p.MedianSeconds.Value+" giây":"—",
                 p.FirstStart,p.LastEnd,
                 p.NeedsReview>0?"Có "+p.NeedsReview+" lượt cần xác minh WMS":
-                p.Completed>0?"Các lượt đã ghi nhận đều hoàn tất UI":"Chưa có lượt hoàn tất");
+                p.Completed>0?"Các lượt đã ghi nhận đều hoàn tất trên giao diện WMS":"Chưa có lượt hoàn tất");
         }
     }
 
     private Control BuildAboutTab()
     {
-        var panel=new TableLayoutPanel
+        var root=new TableLayoutPanel
         {
-            Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,BackColor=Color.White,
-            Padding=new Padding(22,18,22,18)
+            Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,
+            BackColor=Color.FromArgb(247,249,252),
+            Padding=new Padding(15,8,15,12)
         };
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
-        panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute,64));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,112));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         var heading=new Label
         {
-            Dock=DockStyle.Fill,Text="WMS PACKING & PRODUCTIVITY ASSISTANT",
-            Font=new Font("Segoe UI",15,FontStyle.Bold),ForeColor=_navy
+            Dock=DockStyle.Fill,Text="THÔNG TIN VÀ BẢO MẬT PHẦN MỀM",
+            Font=new Font("Segoe UI",15,FontStyle.Bold),ForeColor=_navy,
+            TextAlign=ContentAlignment.MiddleLeft,Padding=new Padding(10,0,0,0)
         };
-        var details=new TextBox
+        var actions=new TableLayoutPanel
         {
-            Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,
-            BorderStyle=BorderStyle.None,BackColor=Color.White,
-            Font=new Font("Segoe UI",11),TabStop=false,
-            Text="HỖ TRỢ ĐÓNG GÓI VÀ GHI NHẬN NĂNG SUẤT"+Environment.NewLine+Environment.NewLine+
-                 "Ứng dụng độc lập hỗ trợ nhân viên thao tác đóng gói trên giao diện WMS: "+
-                 "nhập Tote, cập nhật số kiện trong lượt đóng gói, xác nhận hoàn tất và yêu cầu in nhãn. "+
-                 "Ứng dụng không phải phần mềm chính thức của đơn vị cung cấp WMS."+Environment.NewLine+Environment.NewLine+
-                 "LỊCH SỬ NGHIỆP VỤ"+Environment.NewLine+
-                 "Lưu tại máy tính của người dùng: thời gian, nhân sự, mã SO/DO và kết quả. "+
-                 "Có thể xuất Excel theo yêu cầu. Không tự động chuyển dữ liệu lịch sử lên mạng."+Environment.NewLine+Environment.NewLine+
-                 "NHẬT KÝ CHẨN ĐOÁN"+Environment.NewLine+
-                 "Chỉ ghi phiên bản, bước thao tác, thời gian và mã trạng thái/lỗi kỹ thuật. "+
-                 "Không ghi Tote, SO/DO, người thực hiện, nội dung trang WMS, cookie, token hoặc mật khẩu vào log. "+
-                 "Nhật ký chỉ xuất khi người dùng chủ động thực hiện."+Environment.NewLine+Environment.NewLine+
-                 "THÔNG TIN ĐĂNG NHẬP WMS"+Environment.NewLine+
-                 "Trình duyệt Microsoft WebView2 dùng hồ sơ riêng, cố định trong dữ liệu ứng dụng của tài khoản Windows. "+
-                 "Nếu người dùng chọn lưu mật khẩu tại lời nhắc của trình duyệt, WebView2 có thể giữ dữ liệu xác thực qua các lần mở. "+
-                 "Ứng dụng không đọc, trích xuất hoặc đưa dữ liệu xác thực vào log. "+
-                 "Dữ liệu này vẫn tồn tại trên máy cho đến khi được xóa theo chính sách của người dùng/công ty."+Environment.NewLine+Environment.NewLine+
-                 "GIỚI HẠN VÀ BẢO MẬT"+Environment.NewLine+
-                 "Chỉ tương tác với quy trình đóng gói WMS đã xác định. Không có tính năng sửa quyền, "+
-                 "cấu hình quản trị, danh mục hàng hóa hay dữ liệu ngoài quy trình. "+
-                 "Không quét thiết bị, không theo dõi các ứng dụng khác và không thu thập HTTP headers, request hoặc response."+Environment.NewLine+Environment.NewLine+
-                 "CẬP NHẬT VÀ KHỞI ĐỘNG"+Environment.NewLine+
-                 "Cập nhật bằng cách cài bản mới thủ công; không tự kiểm tra hoặc tải bản cập nhật. "+
-                 "Tùy chọn khởi động cùng Windows chỉ áp dụng cho tài khoản hiện tại, không yêu cầu quyền quản trị."
+            Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,
+            BackColor=Color.White,Padding=new Padding(12,6,12,4)
         };
-        var footer=new Panel{Dock=DockStyle.Fill};
-        _startWithWindows.Location=new Point(6,12);
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        actions.RowStyles.Add(new RowStyle(SizeType.Absolute,54));
+        actions.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        _startWithWindows.Dock=DockStyle.Fill;
+        _startWithWindows.Text="Tự chạy khi đăng nhập Windows";
+        _startWithWindows.Font=new Font("Segoe UI",11,FontStyle.Bold);
         _startWithWindows.Checked=AutoStartManager.IsEnabled();
-        _startWithWindows.CheckedChanged+=(_,_)=>
+        _startWithWindows.CheckedChanged+=(_,_) =>
         {
             if(_changingStartupSetting)return;
-            try
-            {
-                AutoStartManager.SetEnabled(_startWithWindows.Checked);
-            }
+            try {AutoStartManager.SetEnabled(_startWithWindows.Checked);}
             catch
             {
                 _changingStartupSetting=true;
-                try { _startWithWindows.Checked=AutoStartManager.IsEnabled(); }
-                finally { _changingStartupSetting=false; }
+                try{_startWithWindows.Checked=AutoStartManager.IsEnabled();}
+                finally{_changingStartupSetting=false;}
                 MessageBox.Show(this,
-                    "Không thể thay đổi tự khởi động. Có thể chính sách công ty đã giới hạn mục này.",
-                    "Không thể thay đổi tự khởi động",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                    "Không thể thay đổi tự khởi động. Chính sách công ty có thể giới hạn mục này.",
+                    "Tự khởi động",MessageBoxButtons.OK,MessageBoxIcon.Warning);
             }
         };
-        footer.Controls.Add(_startWithWindows);
-        panel.Controls.Add(heading,0,0);
-        panel.Controls.Add(details,0,1);
-        panel.Controls.Add(footer,0,2);
-        return panel;
+        var clearBrowser=MakeButton("XÓA DỮ LIỆU TRÌNH DUYỆT",315);
+        clearBrowser.Dock=DockStyle.Fill;
+        clearBrowser.BackColor=Color.FromArgb(159,44,50);
+        clearBrowser.Margin=new Padding(5,3,3,4);
+        clearBrowser.Click+=async (_,_)=>await ResetBrowserAsync(clearBrowser);
+        var note=new Label
+        {
+            Dock=DockStyle.Fill,AutoEllipsis=false,TextAlign=ContentAlignment.MiddleLeft,
+            Font=new Font("Segoe UI",9.5f),ForeColor=Color.FromArgb(70,80,95),
+            Text="Xóa dữ liệu trình duyệt sẽ đăng xuất WMS và xóa mật khẩu WebView2 đã lưu. Lịch sử đóng gói và danh sách nhân sự được giữ nguyên."
+        };
+        actions.Controls.Add(_startWithWindows,0,0);
+        actions.Controls.Add(clearBrowser,1,0);
+        actions.Controls.Add(note,0,1);
+        actions.SetColumnSpan(note,2);
+
+        var sections=new TableLayoutPanel
+        {
+            Dock=DockStyle.Fill,ColumnCount=2,RowCount=3,
+            Padding=new Padding(0,8,0,0),Margin=new Padding(0)
+        };
+        sections.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        sections.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        for(var i=0;i<3;i++)sections.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        static Control Section(string title,string body)
+        {
+            var group=new GroupBox
+            {
+                Text=title,Dock=DockStyle.Fill,BackColor=Color.White,
+                Font=new Font("Segoe UI",11,FontStyle.Bold),
+                Padding=new Padding(10,6,10,8),Margin=new Padding(5)
+            };
+            var text=new TextBox
+            {
+                Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,WordWrap=true,
+                ScrollBars=ScrollBars.Vertical,BorderStyle=BorderStyle.None,
+                Font=new Font("Segoe UI",10.5f,FontStyle.Regular),
+                BackColor=Color.White,TabStop=false,Text=body
+            };
+            group.Controls.Add(text);
+            return group;
+        }
+        sections.Controls.Add(Section("MỤC ĐÍCH SỬ DỤNG",
+            "Ứng dụng hỗ trợ thao tác đóng gói WMS: nhập Tote, cập nhật số kiện, yêu cầu in nhãn và xác nhận hoàn tất. "+
+            "Đồng thời ghi nhận sản lượng cho người lao động. Đây là công cụ độc lập, không phải phần mềm chính thức của nhà cung cấp WMS."),0,0);
+        sections.Controls.Add(Section("LỊCH SỬ NGHIỆP VỤ",
+            "Lưu trên máy tính của tài khoản Windows hiện tại: thời gian, nhân sự, mã SO/DO, kết quả đóng gói và các chỉ số có nguồn xác định. "+
+            "Cho phép xuất Excel theo yêu cầu. Không tự động gửi lịch sử lên mạng."),1,0);
+        sections.Controls.Add(Section("NHẬT KÝ KỸ THUẬT",
+            "Chỉ ghi phiên bản, bước thao tác, thời gian và mã lỗi kỹ thuật. "+
+            "Không đưa Tote, SO/DO, người thực hiện, nội dung trang WMS, mật khẩu, cookie hoặc token vào log. "+
+            "Chỉ xuất log khi người dùng chủ động yêu cầu."),0,1);
+        sections.Controls.Add(Section("ĐĂNG NHẬP VÀ MẬT KHẨU",
+            "WebView2 có hồ sơ riêng, cố định theo tài khoản Windows. Khi người dùng đồng ý, trình duyệt có thể lưu mật khẩu, cookie và phiên đăng nhập. "+
+            "Ứng dụng không tự đọc hoặc trích xuất chúng. Nút Xóa dữ liệu trình duyệt xóa dữ liệu duyệt web trong hồ sơ này."),1,1);
+        sections.Controls.Add(Section("GIỚI HẠN VÀ BẢO MẬT",
+            "Chỉ hỗ trợ quy trình đóng gói WMS đã xác định. Không có chức năng sửa quyền, cấu hình quản trị, danh mục hàng hóa hoặc dữ liệu ngoài quy trình. "+
+            "Không theo dõi ứng dụng khác, không thu thập nội dung HTTP request/response."),0,2);
+        sections.Controls.Add(Section("CẬP NHẬT VÀ KHỞI ĐỘNG",
+            "Cập nhật phần mềm bằng cách cài bản mới thủ công, không tự kiểm tra hoặc tải bản cập nhật. "+
+            "Tự khởi động chỉ áp dụng cho tài khoản Windows hiện tại và không cần quyền quản trị. "+
+            "Phần mềm hoạt động trong phạm vi được doanh nghiệp cho phép."),1,2);
+        root.Controls.Add(heading,0,0);
+        root.Controls.Add(actions,0,1);
+        root.Controls.Add(sections,0,2);
+        return root;
+    }
+
+    private async Task ResetBrowserAsync(Button resetButton)
+    {
+        if(_busy)
+        {
+            MessageBox.Show(this,"Không thể xóa dữ liệu trình duyệt khi đang xử lý Tote.",
+                "Đang xử lý",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        if(!_browser.Ready)
+        {
+            MessageBox.Show(this,"Trình duyệt chưa sẵn sàng. Hãy mở lại ứng dụng và thử lại.",
+                "Chưa sẵn sàng",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        if(MessageBox.Show(this,
+            "Xóa toàn bộ dữ liệu duyệt web trong hồ sơ WebView2 của ứng dụng này, bao gồm:"+
+            Environment.NewLine+"- Mật khẩu đã lưu và dữ liệu tự điền."+
+            Environment.NewLine+"- Cookie, phiên đăng nhập, bộ nhớ trang và dữ liệu tạm."+
+            Environment.NewLine+Environment.NewLine+
+            "Sau thao tác phải đăng nhập lại và chọn quầy/máy in. "+
+            "Lịch sử đóng gói, danh sách nhân sự và log kỹ thuật không bị xóa."+
+            Environment.NewLine+Environment.NewLine+"Anh có chắc chắn muốn tiếp tục?",
+            "XÁC NHẬN XÓA DỮ LIỆU TRÌNH DUYỆT",
+            MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+        _resettingBrowser=true;
+        _setupRunning=false;
+        _setupDone=false;
+        _printerVerified=false;
+        _needsRecovery=false;
+        resetButton.Enabled=false;
+        UpdateControls();
+        Status("INIT","Đang xóa dữ liệu WebView2...");
+        try
+        {
+            // Stop the in-flight automatic setup before touching the browser profile.
+            // No operation or business record is removed.
+            if(_setupTask!=null)await _setupTask;
+            await _browser.ClearBrowsingDataAsync();
+            _browser.Reveal();
+            Status("INIT","Đã xóa dữ liệu trình duyệt. Hãy đăng nhập WMS để thiết lập lại.");
+            MessageBox.Show(this,"Đã xóa dữ liệu duyệt web của ứng dụng. Lịch sử và nhân sự được giữ nguyên.",
+                "Đã xóa dữ liệu trình duyệt",MessageBoxButtons.OK,MessageBoxIcon.Information);
+        }
+        catch
+        {
+            _store.Trace("WEB","BROWSING_DATA_RESET_FAILED","ERROR");
+            Status("FAULT","Không xóa được toàn bộ dữ liệu trình duyệt. Không khẳng định đã xóa thành công.");
+            MessageBox.Show(this,"Không thể xác nhận việc xóa dữ liệu trình duyệt. Hãy đóng phần mềm và kiểm tra lại.",
+                "Xóa dữ liệu thất bại",MessageBoxButtons.OK,MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _resettingBrowser=false;
+            resetButton.Enabled=true;
+            if(!IsDisposed)
+            {
+                UpdateControls();
+                if(_browser.Ready&&!_setupDone)_setupTask=RunInitialSetupAsync();
+            }
+        }
     }
 
     private async Task RunInitialSetupAsync()
     {
-        if(_setupRunning||_setupDone||IsDisposed)return;
+        if(_setupRunning||_setupDone||IsDisposed||_resettingBrowser)return;
         _setupRunning=true;
         var accountOpenAttempts=0;
         try
         {
             // Never change account, credentials, WMS service data or printer settings
             // outside the specifically identified setup UI. Unknown UI => manual check.
-            while(_setupRunning&&!_setupDone&&!IsDisposed)
+            while(_setupRunning&&!_setupDone&&!IsDisposed&&!_resettingBrowser)
             {
                 await Task.Delay(1350);
-                if(!_setupRunning||IsDisposed)break;
+                if(!_setupRunning||IsDisposed||_resettingBrowser)break;
                 _browser.TryNavigatePackingAfterLogin();
                 var p=await _browser.SetupPeekAsync();
+                if(_resettingBrowser||!_setupRunning)break;
                 if(p?.ok!=true)continue; // Waiting for manual WMS login or navigation.
                 async Task<bool> Step(string code)
                 {
+                    if(_resettingBrowser||!_setupRunning)return false;
                     var a=await _browser.SetupActionAsync(code);
                     var safe=Regex.IsMatch(a.reason??"","^[A-Z0-9_]{1,60}$")?a.reason:"UNSPECIFIED";
                     _store.Trace("SETUP","ACTION_"+code,a.ok?"DONE":"BLOCKED",0,a.ok?"":safe);

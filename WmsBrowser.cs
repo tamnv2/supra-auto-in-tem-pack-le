@@ -52,6 +52,7 @@ internal sealed class WmsBrowser : UserControl
     private readonly Action _openBrowserTab;
     private bool _startupRouting=true;
     private int _startupRedirects;
+    private bool _clearingProfile;
     public event Action? LoginRequired;
     public bool Ready {get;private set;}
     public WmsBrowser(LocalStore storage,Action openBrowserTab)
@@ -104,7 +105,7 @@ internal sealed class WmsBrowser : UserControl
                 _storage.Trace("WEB",e.IsSuccess?"NAVIGATION_DONE":"NAVIGATION_ERROR",
                     e.IsSuccess?"OK":"ERROR");
                 if(!e.IsSuccess)return;
-                if(Uri.TryCreate(core.Source,UriKind.Absolute,out var destination) &&
+                if(!_clearingProfile && Uri.TryCreate(core.Source,UriKind.Absolute,out var destination) &&
                    (destination.Host.Equals("auth-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) ||
                     (destination.Host.Equals("wms-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) &&
                      destination.AbsolutePath.Contains("/login",StringComparison.OrdinalIgnoreCase))))
@@ -148,6 +149,34 @@ internal sealed class WmsBrowser : UserControl
         _startupRedirects++;
         _storage.Trace("SETUP","RETURN_PACKING_ROUTE","OK");
         core.Navigate(Target);
+    }
+    /// <summary>
+    /// Clears browser-managed site data including cookies, cache, stored passwords and
+    /// autofill entries from this application's WebView2 profile only. Never touches
+    /// operational history, employee records or diagnostic logs.
+    /// </summary>
+    public async Task ClearBrowsingDataAsync()
+    {
+        var core=_view.CoreWebView2;
+        if(!Ready||core==null||_clearingProfile)
+            throw new InvalidOperationException("WMS_BROWSER_NOT_READY");
+        _clearingProfile=true;
+        StopStartupRouting();
+        try
+        {
+            // Supported by WebView2 v1.0.3351.48. No credential data is read by app code.
+            await core.Profile.ClearBrowsingDataAsync();
+            _storage.Trace("WEB","BROWSING_DATA_CLEARED","DONE");
+            BeginStartupRouting();
+            core.Navigate(Target);
+        }
+        catch
+        {
+            _storage.Trace("WEB","BROWSING_DATA_CLEAR_FAILED","ERROR");
+            BeginStartupRouting();
+            throw;
+        }
+        finally { _clearingProfile=false; }
     }
     public void StopStartupRouting()=>_startupRouting=false;
     public void BeginStartupRouting()
