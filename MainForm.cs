@@ -12,14 +12,17 @@ public sealed class MainForm : Form
     private readonly TextBox _tote=new(){Width=320,Font=new Font("Segoe UI",14)};
     private readonly TextBox _qty=new(){Width=160,Font=new Font("Segoe UI",14)};
     private readonly Button _ok=MakeButton("OK – CHỌN NHÂN SỰ",200);
-    private readonly Button _show=MakeButton("HIỆN WEB",115);
-    private readonly Button _hide=MakeButton("ẨN WEB",110);
+    private readonly Button _show=MakeButton("MỞ TRÌNH DUYỆT",170);
     private readonly Button _stop=MakeButton("DỪNG / XỬ LÝ TAY",195);
     private readonly Button _recover=MakeButton("XÁC MINH WMS SẴN SÀNG",215);
     private readonly Button _peopleButton=MakeButton("QUẢN LÝ NHÂN SỰ",190);
     private readonly Button _exportXlsx=MakeButton("XUẤT LỊCH SỬ XLSX",190);
     private readonly Button _exportLog=MakeButton("XUẤT LOG",135);
-    private readonly Button _update=MakeButton("CẬP NHẬT",130);
+    private readonly TabControl _tabs=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",10)};
+    private readonly TabPage _operationTab=new("NGHIỆP VỤ");
+    private readonly TabPage _webTab=new("TRÌNH DUYỆT WMS");
+    private readonly TabPage _aboutTab=new("THÔNG TIN PHẦN MỀM");
+    private readonly CheckBox _startWithWindows=new(){AutoSize=true,Text="Tự động chạy khi đăng nhập Windows"};
     private readonly Label _status=new(){AutoSize=false,Height=68,Font=new Font("Segoe UI",10,FontStyle.Bold)};
     private readonly DataGridView _history=new(){
         Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,
@@ -41,8 +44,8 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _people=_store.LoadPeople();
-        _browser=new WmsBrowser(_store);
-        Text="SUPRA – AUTO IN TEM PACK LẺ | "+Application.ProductVersion;
+        _browser=new WmsBrowser(_store,()=>_tabs.SelectedTab=_webTab);
+        Text="WMS Packing & Productivity Assistant | "+Application.ProductVersion;
         Font=new Font("Segoe UI",10);
         MinimumSize=new Size(780,610);Width=1040;Height=790;
         StartPosition=FormStartPosition.CenterScreen;
@@ -54,14 +57,13 @@ public sealed class MainForm : Form
         Activated+=(_,_)=>{if(!_busy&&!_needsRecovery&&_tote.Enabled)_tote.Focus();};
         Status("INIT","Mở cửa sổ WMS, đăng nhập và chọn máy in trước khi dùng.");
         Shown+=async (_,_)=>{
-            _browser.Reveal();
+            _tabs.SelectedTab=_webTab;
             try
             {
                 await _browser.InitializeAsync();
-                Status("READY","Đăng nhập WMS và chọn máy in. Sau đó ẩn cửa sổ WMS để thao tác.");
+                Status("READY","Đăng nhập WMS và chọn máy in tại tab Trình duyệt, sau đó chọn Nghiệp vụ.");
             }
             catch { Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime."); }
-            _tote.Focus();
         };
         FormClosing+=(_,_)=>{
             _midnightCheck.Stop();
@@ -80,7 +82,7 @@ public sealed class MainForm : Form
     private void Compose()
     {
         var title=new Panel{Dock=DockStyle.Top,Height=62,BackColor=_navy};
-        title.Controls.Add(new Label{Text="SUPRA  |  AUTO IN TEM PACK LẺ",Dock=DockStyle.Fill,
+        title.Controls.Add(new Label{Text="WMS  |  PACKING & PRODUCTIVITY ASSISTANT",Dock=DockStyle.Fill,
             Padding=new Padding(18,0,0,0),TextAlign=ContentAlignment.MiddleLeft,
             ForeColor=Color.White,Font=new Font("Segoe UI",17,FontStyle.Bold)});
         var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=5,Padding=new Padding(16,12,16,12)};
@@ -109,7 +111,7 @@ public sealed class MainForm : Form
         root.Controls.Add(inputs,0,0);
         var actions=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,WrapContents=false,
             FlowDirection=FlowDirection.LeftToRight,Margin=new Padding(0),Padding=new Padding(0,6,0,2)};
-        actions.Controls.AddRange([_peopleButton,_show,_hide,_stop,_recover,_update]);
+        actions.Controls.AddRange([_peopleButton,_show,_stop,_recover]);
         root.Controls.Add(actions,0,1);
         _status.Dock=DockStyle.Fill;_status.Height=46;_status.AutoSize=false;
         _status.Padding=new Padding(12,0,8,0);_status.TextAlign=ContentAlignment.MiddleLeft;
@@ -142,7 +144,16 @@ public sealed class MainForm : Form
         _history.DefaultCellStyle.SelectionBackColor=Color.FromArgb(215,228,244);
         _history.DefaultCellStyle.SelectionForeColor=Color.FromArgb(20,36,55);
         root.Controls.Add(_history,0,4);
-        Controls.Add(root);Controls.Add(title);
+        _operationTab.Controls.Add(root);
+        _operationTab.Controls.Add(title);
+        _webTab.Controls.Add(_browser);
+        _aboutTab.Controls.Add(BuildAboutTab());
+        _tabs.TabPages.AddRange([_operationTab,_webTab,_aboutTab]);
+        _tabs.SelectedIndexChanged+=(_,_)=>{
+            if(_tabs.SelectedTab==_operationTab && !_busy && !_needsRecovery)
+                _tote.Focus();
+        };
+        Controls.Add(_tabs);
         var columns=new[]{"Ngày","Bắt đầu","Kết thúc","Giây","Nhân sự","Mã SO","Mã DO","Kết quả"};
         foreach(var item in columns)_history.Columns.Add(item,item);
         var weights=new float[]{13,10,10,6,13,13,13,22};
@@ -152,7 +163,6 @@ public sealed class MainForm : Form
         _ok.Click+=async (_,_)=>await OnSubmitAsync();
         _peopleButton.Click+=(_,_)=>ManagePeople();
         _show.Click+=(_,_)=>_browser.Reveal();
-        _hide.Click+=(_,_)=>_browser.Hide();
         _stop.Click+=(_,_)=>{
             if(!_busy){_browser.Reveal();return;}
             if(MessageBox.Show("Dừng xử lý tự động? Nếu lệnh in đã gửi, KHÔNG được tự in lại.",
@@ -167,20 +177,81 @@ public sealed class MainForm : Form
         };
         _exportXlsx.Click+=(_,_)=>ExportXlsx();
         _exportLog.Click+=(_,_)=>ExportLogs();
-        _update.Click+=async (_,_)=>{
-            if(_busy){MessageBox.Show("Không cập nhật khi đang xử lý Tote.");return;}
-            _update.Enabled=false;
-            try{await UpdateClient.CheckAndInstallAsync(this,_store);}
-            finally{_update.Enabled=true;}
-        };
         UpdateControls();
+    }
+
+    private Control BuildAboutTab()
+    {
+        var panel=new TableLayoutPanel
+        {
+            Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,BackColor=Color.White,
+            Padding=new Padding(22,18,22,18)
+        };
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute,64));
+        var heading=new Label
+        {
+            Dock=DockStyle.Fill,Text="WMS PACKING & PRODUCTIVITY ASSISTANT",
+            Font=new Font("Segoe UI",15,FontStyle.Bold),ForeColor=_navy
+        };
+        var details=new TextBox
+        {
+            Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,
+            BorderStyle=BorderStyle.None,BackColor=Color.White,
+            Font=new Font("Segoe UI",11),TabStop=false,
+            Text="HỖ TRỢ ĐÓNG GÓI VÀ GHI NHẬN NĂNG SUẤT"+Environment.NewLine+Environment.NewLine+
+                 "Ứng dụng độc lập hỗ trợ nhân viên thao tác đóng gói trên giao diện WMS: "+
+                 "nhập Tote, cập nhật số kiện trong lượt đóng gói, xác nhận hoàn tất và yêu cầu in nhãn. "+
+                 "Ứng dụng không phải phần mềm chính thức của đơn vị cung cấp WMS."+Environment.NewLine+Environment.NewLine+
+                 "LỊCH SỬ NGHIỆP VỤ"+Environment.NewLine+
+                 "Lưu tại máy tính của người dùng: thời gian, nhân sự, mã SO/DO và kết quả. "+
+                 "Có thể xuất Excel theo yêu cầu. Không tự động chuyển dữ liệu lịch sử lên mạng."+Environment.NewLine+Environment.NewLine+
+                 "NHẬT KÝ CHẨN ĐOÁN"+Environment.NewLine+
+                 "Chỉ ghi phiên bản, bước thao tác, thời gian và mã trạng thái/lỗi kỹ thuật. "+
+                 "Không ghi Tote, SO/DO, người thực hiện, nội dung trang WMS, cookie, token hoặc mật khẩu vào log. "+
+                 "Nhật ký chỉ xuất khi người dùng chủ động thực hiện."+Environment.NewLine+Environment.NewLine+
+                 "THÔNG TIN ĐĂNG NHẬP WMS"+Environment.NewLine+
+                 "Trình duyệt Microsoft WebView2 dùng hồ sơ riêng, cố định trong dữ liệu ứng dụng của tài khoản Windows. "+
+                 "Nếu người dùng chọn lưu mật khẩu tại lời nhắc của trình duyệt, WebView2 có thể giữ dữ liệu xác thực qua các lần mở. "+
+                 "Ứng dụng không đọc, trích xuất hoặc đưa dữ liệu xác thực vào log. "+
+                 "Dữ liệu này vẫn tồn tại trên máy cho đến khi được xóa theo chính sách của người dùng/công ty."+Environment.NewLine+Environment.NewLine+
+                 "GIỚI HẠN VÀ BẢO MẬT"+Environment.NewLine+
+                 "Chỉ tương tác với quy trình đóng gói WMS đã xác định. Không có tính năng sửa quyền, "+
+                 "cấu hình quản trị, danh mục hàng hóa hay dữ liệu ngoài quy trình. "+
+                 "Không quét thiết bị, không theo dõi các ứng dụng khác và không thu thập HTTP headers, request hoặc response."+Environment.NewLine+Environment.NewLine+
+                 "CẬP NHẬT VÀ KHỞI ĐỘNG"+Environment.NewLine+
+                 "Cập nhật bằng cách cài bản mới thủ công; không tự kiểm tra hoặc tải bản cập nhật. "+
+                 "Tùy chọn khởi động cùng Windows chỉ áp dụng cho tài khoản hiện tại, không yêu cầu quyền quản trị."
+        };
+        var footer=new Panel{Dock=DockStyle.Fill};
+        _startWithWindows.Location=new Point(6,12);
+        _startWithWindows.Checked=AutoStartManager.IsEnabled();
+        _startWithWindows.CheckedChanged+=(_,_)=>
+        {
+            try
+            {
+                AutoStartManager.SetEnabled(_startWithWindows.Checked);
+            }
+            catch
+            {
+                _startWithWindows.Checked=AutoStartManager.IsEnabled();
+                MessageBox.Show(this,
+                    "Windows hoặc chính sách IT không cho phép thay đổi mục tự khởi động của tài khoản này.",
+                    "Không thể thay đổi tự khởi động",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
+        };
+        footer.Controls.Add(_startWithWindows);
+        panel.Controls.Add(heading,0,0);
+        panel.Controls.Add(details,0,1);
+        panel.Controls.Add(footer,0,2);
+        return panel;
     }
     private void UpdateControls()
     {
         var allow=!_busy&&!_needsRecovery;
         _ok.Enabled=allow;_tote.Enabled=allow;_qty.Enabled=allow;
         _peopleButton.Enabled=!_busy;_recover.Enabled=!_busy&&_needsRecovery;
-        _update.Enabled=!_busy;
     }
     private void Status(string stage,string message)
     {
@@ -222,6 +293,7 @@ public sealed class MainForm : Form
             if(IsDisposed||_busy||_needsRecovery||!_tote.Enabled)return;
             if(WindowState==FormWindowState.Minimized)WindowState=FormWindowState.Normal;
             Activate();
+            _tabs.SelectedTab=_operationTab;
             _tote.Focus();
             _tote.SelectAll();
         }));
