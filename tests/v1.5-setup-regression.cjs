@@ -11,7 +11,9 @@ const node=(label,fn=()=>{})=>({
  querySelectorAll:()=>[]
 });
 class Input {
- constructor(){this.value='';this.disabled=false;this.type='text';this.parentElement=null;}
+ constructor(){this._value='';this.disabled=false;this.type='text';this.parentElement=null;}
+ get value(){return this._value}
+ set value(v){this._value=v}
  getClientRects(){return [1]}
  getAttribute(){return null}
  focus(){} select(){} blur(){} dispatchEvent(){}
