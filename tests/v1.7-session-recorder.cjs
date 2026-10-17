@@ -49,7 +49,10 @@ const target=(tag,content,value='',type='button')=>({
  getAttribute(name){return name==='type'?type:null},
  getClientRects(){return [1]},
  matches(query){return tag==='input' && query.includes('input')},
- closest(){return this}
+ closest(query){
+   if(query.includes('input[type="password"]'))return type==='password'?this:null;
+   return query.includes('button,a,label')?this:null;
+ }
 });
 api.setActive(true);
 let button=target('button','Thiết lập máy in');
