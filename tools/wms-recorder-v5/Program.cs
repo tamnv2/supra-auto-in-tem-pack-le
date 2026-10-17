@@ -3,6 +3,7 @@ using System.Windows.Forms;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Microsoft.Web.WebView2.Core;
@@ -26,6 +27,8 @@ internal static class Program
 
 internal sealed class RecorderForm : Form
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+        { Encoder=JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private const string PackingUrl = "https://wms-supra.winmart.vn/sft3/app/saleorder/packing";
     private readonly WebView2 _web = new() { Dock=DockStyle.Fill };
     private readonly Label _status = new() { Dock=DockStyle.Fill, TextAlign=ContentAlignment.MiddleLeft };
@@ -186,7 +189,7 @@ internal sealed class RecorderForm : Form
     private void Record(string kind,object payload)
     {
         if(!_active || _events is null)return;
-        string line=JsonSerializer.Serialize(new { time=DateTimeOffset.Now.ToString("O"),kind,data=payload });
+        string line=JsonSerializer.Serialize(new { time=DateTimeOffset.Now.ToString("O"),kind,data=payload },JsonOptions);
         if(_events.Writer.TryWrite(line)) _eventCount++;
     }
 
@@ -272,7 +275,7 @@ internal sealed class RecorderForm : Form
             if(_smoke)
             {
                 string content=File.ReadAllText(source); // Export retains source for smoke assertions
-                if(!content.Contains("web_click") || !content.Contains("Thiết lập máy in"))
+                if(!content.Contains("web_click") || !content.Contains("button#check-printer"))
                     throw new InvalidOperationException("Smoke failed: browser DOM click missing. Events: "+
                         content[..Math.Min(content.Length,1700)]);
                 string? marker=Environment.GetEnvironmentVariable("SUPRA_SMOKE_RESULT");
