@@ -58,3 +58,16 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Optional auto-run with Windows uses current-user HKCU Run only, no admin, no service/task and no security-policy bypass; indicate failure if denied.
 - About tab explicitly discloses UI WMS interactions, history vs technical logs, browser-managed credential persistence, no automated data uploads and independent product status.
 - Field PASS requires testing on actual managed Windows machine/mạng Office for password save, background WebView2 while another tab is visible, in-label print dialogs, old history compatibility and standard-user autostart; CI cannot verify corporate permissions or physical printing.
+
+
+## v1.5.0 — Owner yêu cầu 2026-10-17, UI sản lượng và thiết lập WMS
+
+- Sau đăng nhập, thử điều hướng về `/sft3/app/saleorder/packing` chỉ từ WMS authenticated app route. Không can thiệp form đăng nhập, SSO, cookie hoặc token.
+- Nếu đúng popup `NHẬP MÃ QUẦY ĐÓNG GÓI`, chỉ trong popup đúng ngữ cảnh tự nhập `SDG.24` và xác nhận sau khi kiểm tra giá trị. Không can thiệp các form khác.
+- Chỉ trong menu tài khoản đúng ngữ nghĩa mở `Thiết lập máy in`: nếu chưa chọn, chọn duy nhất `21-1129-D29 (Online)`, kiểm tra lại, xác nhận; nếu đã có bất kỳ máy in nào, chỉ Đóng. Mọi selector phải duy nhất, enabled, visible; sai/không rõ thì dừng auto setup, yêu cầu người dùng xử lý thủ công qua tab WMS; không click theo tọa độ hoặc DOM index.
+- Xác minh sẵn sàng sau thiết lập; nếu không xác định được menu/selector, người dùng được xác nhận bằng tay khi đang ở ô quét Tote và đã tự kiểm tra máy in. Không coi failed selector là sẵn sàng.
+- Chỉnh UI WinForms: tab owner draw cao/rộng hơn, trạng thái chọn nổi bật; ô Tote/số kiện lớn chữ đậm; nút rõ và không che nội dung; lịch sử có horizontal scroll với `Thời gian xử lí`.
+- Nhân sự: chỉ một nút thêm, nhập `A, B, C` hoặc `A,B,C` đều hợp lệ; chọn mặc định hàng đầu tiên trong hộp lựa chọn, nhấn Enter xác nhận, mũi tên để đổi tên.
+- Mở rộng `HistoryRow` bằng các trường nullable SkuCount, ParcelCount, Pcs, Points để đọc/ghi tương thích bản cũ, xuất Excel và hiển thị lịch sử. ParcelCount lấy trực tiếp **số kiện nhân viên nhập trong ứng dụng**, kể cả lượt bị dừng; chưa phải số kiện độc lập được WMS xác minh. Số SKU, Pcs, Điểm chưa có logic WMS từ Owner: để null, không tự bịa số và không ghi 0 thay null.
+- Tab `Sản lượng hôm nay` sử dụng đúng lịch sử đã ghi trong LocalStore: số lượt, số DO duy nhất hoàn tất theo người, các lượt cần kiểm tra, tổng/ trung vị thời gian xử lý **chỉ trong lượt hoàn tất**. Điểm chỉ cộng những lượt có điểm, kèm số lượng được ghi nhận; trống phải hiển thị `Chưa có dữ liệu`. Không suy luận số giờ làm việc, không xếp hạng năng suất từ dữ liệu chưa đầy đủ.
+- CI: test popup quầy, máy in, URL không hợp lệ, lịch sử null tương thích, DO dedup, điểm và XLSX. Build PASS không chứng minh WMS automation trên mạng Office: Owner phải thử nghiệm thật.
