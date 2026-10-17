@@ -14,6 +14,10 @@ public sealed class MainForm : Form
     private readonly TextBox _qty=new(){Width=160,Font=new Font("Segoe UI",19,FontStyle.Bold)};
     private readonly Button _ok=MakeButton("CHỌN NHÂN SỰ",205);
     private readonly Button _show=MakeButton("ẨN TRÌNH DUYỆT",170);
+    private readonly Button _traceStart=MakeButton("BẮT ĐẦU GHI",140);
+    private readonly Button _traceStop=MakeButton("KẾT THÚC & XUẤT LOG",200);
+    private readonly Label _traceStatus=new(){Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft,
+        Font=new Font("Segoe UI",9,FontStyle.Bold),AutoEllipsis=true};
     private readonly Button _stop=MakeButton("DỪNG / XỬ LÝ TAY",195);
     private readonly Button _recover=MakeButton("XÁC NHẬN WMS SẴN SÀNG",275);
     private readonly Button _peopleButton=MakeButton("QUẢN LÝ NHÂN SỰ",190);
@@ -107,7 +111,15 @@ public sealed class MainForm : Form
             }
             catch { Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime."); }
         };
-        FormClosing+=(_,_)=>{
+        FormClosing+=(_,e)=>{
+            if(_browser.Recording)
+            {
+                e.Cancel=true;
+                ShowBrowser();
+                MessageBox.Show(this,"Đang ghi thao tác WMS. Hãy bấm KẾT THÚC & XUẤT LOG trước khi đóng phần mềm.",
+                    "Chưa xuất log thao tác",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
+            }
             _midnightCheck.Stop();
             _midnightCheck.Dispose();
             _saveWidthsTimer.Stop();
@@ -237,17 +249,31 @@ public sealed class MainForm : Form
             ColumnCount=1,Margin=Padding.Empty,Padding=Padding.Empty};
         browserLayout.RowStyles.Add(new RowStyle(SizeType.Absolute,48));
         browserLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        var browserHeader=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+        var browserHeader=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=4,RowCount=1,
             BackColor=Color.FromArgb(231,237,245),Padding=new Padding(5)};
         browserHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
-        browserHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,225));
-        browserHeader.Controls.Add(new Label{Dock=DockStyle.Fill,
-            Text="WMS | ĐĂNG NHẬP · KIỂM TRA QUẦY / MÁY IN",TextAlign=ContentAlignment.MiddleLeft,
-            ForeColor=_navy,Font=new Font("Segoe UI",10,FontStyle.Bold)},0,0);
-        var hideFromWeb=MakeButton("ẨN TRÌNH DUYỆT",205);
+        browserHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,147));
+        browserHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,205));
+        browserHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,205));
+        _traceStatus.Text="WMS | Ghi lại thao tác để phân tích";
+        _traceStatus.ForeColor=_navy;
+        browserHeader.Controls.Add(_traceStatus,0,0);
+        _traceStart.Dock=DockStyle.Fill;_traceStart.Margin=new Padding(2);
+        _traceStop.Dock=DockStyle.Fill;_traceStop.Margin=new Padding(2);
+        _traceStop.Enabled=false;
+        _traceStart.BackColor=Color.FromArgb(21,119,79);
+        _traceStop.BackColor=Color.FromArgb(177,66,55);
+        _traceStart.Font=new Font("Segoe UI",9,FontStyle.Bold);
+        _traceStop.Font=new Font("Segoe UI",9,FontStyle.Bold);
+        _traceStart.Click+=async (_,_)=>await StartTraceAsync();
+        _traceStop.Click+=async (_,_)=>await StopTraceAsync();
+        browserHeader.Controls.Add(_traceStart,1,0);
+        browserHeader.Controls.Add(_traceStop,2,0);
+        var hideFromWeb=MakeButton("ẨN TRÌNH DUYỆT",198);
         hideFromWeb.Dock=DockStyle.Fill;hideFromWeb.Margin=new Padding(2);
+        hideFromWeb.Font=new Font("Segoe UI",9,FontStyle.Bold);
         hideFromWeb.Click+=(_,_)=>HideBrowser();
-        browserHeader.Controls.Add(hideFromWeb,1,0);
+        browserHeader.Controls.Add(hideFromWeb,3,0);
         browserLayout.Controls.Add(browserHeader,0,0);
         browserLayout.Controls.Add(_browser,0,1);
         _webTab.Controls.Add(browserLayout);
@@ -774,6 +800,49 @@ public sealed class MainForm : Form
         {
             _setupRunning=false;
             if(!IsDisposed)UpdateControls();
+        }
+    }
+
+    private async Task StartTraceAsync()
+    {
+        _traceStart.Enabled=false;
+        try
+        {
+            await _browser.BeginRecordingAsync();
+            _traceStop.Enabled=true;
+            _traceStatus.Text="ĐANG GHI · thao tác quầy / máy in · Kết thúc để lưu ZIP Desktop";
+            _traceStatus.ForeColor=Color.DarkRed;
+        }
+        catch(Exception e)
+        {
+            _traceStart.Enabled=true;
+            _traceStatus.Text="KHÔNG BẮT ĐẦU: "+e.Message;
+            _store.Trace("RECORDER","UI_START_FAILED","ERROR");
+            MessageBox.Show(this,e.Message,"Ghi thao tác WMS",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+        }
+    }
+    private async Task StopTraceAsync()
+    {
+        _traceStop.Enabled=false;
+        _traceStatus.Text="Đang đóng gói log ra Desktop...";
+        try
+        {
+            var path=await _browser.EndRecordingAsync();
+            _traceStatus.Text="ĐÃ XUẤT: "+Path.GetFileName(path);
+            _traceStatus.ForeColor=Color.DarkGreen;
+            _traceStart.Enabled=true;
+            MessageBox.Show(this,"Đã ghi và xuất log thao tác WMS ra Desktop:\n"+path,
+                "Đã xuất log thao tác",MessageBoxButtons.OK,MessageBoxIcon.Information);
+        }
+        catch(Exception e)
+        {
+            _traceStatus.Text="LỖI XUẤT LOG: "+e.Message;
+            _traceStart.Enabled=!_browser.Recording;
+            _traceStop.Enabled=_browser.Recording;
+            _store.Trace("RECORDER","UI_EXPORT_FAILED","ERROR");
+            MessageBox.Show(this,e.Message+"\nNếu xuất không thành công, dữ liệu ghi tạm vẫn nằm tại "+
+                "thư mục recordings trong dữ liệu ứng dụng.","Không xuất được log",
+                MessageBoxButtons.OK,MessageBoxIcon.Error);
         }
     }
 

@@ -33,6 +33,22 @@ jobs:
           $script | Set-Content -Path "$env:RUNNER_TEMP/wms-workflow-check.js" -Encoding utf8
           node --check "$env:RUNNER_TEMP/wms-workflow-check.js"
           if ($LASTEXITCODE -ne 0) { throw 'JS_SYNTAX_ERROR' }
+      - name: Validate opt-in WMS recorder JavaScript syntax
+        shell: pwsh
+        run: |
+          $raw = Get-Content 'WmsRecorderJs.cs' -Raw
+          $start = $raw.IndexOf('"""')
+          $end = $raw.LastIndexOf('"""')
+          if ($start -lt 0 -or $end -le $start) { throw 'RECORDER_JS_MISSING' }
+          $code = $raw.Substring($start + 3, $end - $start - 3)
+          $code | Set-Content "$env:RUNNER_TEMP/wms-recorder-check.js" -Encoding utf8
+          node --check "$env:RUNNER_TEMP/wms-recorder-check.js"
+          if ($LASTEXITCODE -ne 0) { throw 'RECORDER_JS_SYNTAX_ERROR' }
+      - name: Session clearing and safe recorder regressions
+        shell: pwsh
+        run: |
+          node tests/v1.7-session-recorder.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'RECORDER_REGRESSION_FAILED' }
       - name: Regression test for reused WMS confirmation dialog
         shell: pwsh
         run: |

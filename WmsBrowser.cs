@@ -56,6 +56,8 @@ internal sealed class WmsBrowser : UserControl
     private readonly LocalStore _storage;
     private readonly string _profile;
     private readonly Action _openBrowserTab;
+    private readonly WmsActionRecorder _recorder;
+    public bool Recording=>_recorder.Active;
     private bool _startupRouting=true;
     private int _startupRedirects;
     private bool _clearingProfile;
@@ -66,6 +68,7 @@ internal sealed class WmsBrowser : UserControl
         _storage=storage;
         _openBrowserTab=openBrowserTab;
         _profile=Path.Combine(storage.Root,"webview2-profile");
+        _recorder=new WmsActionRecorder(storage.Root);
         Dock=DockStyle.Fill;
         Controls.Add(_view);
     }
@@ -92,13 +95,22 @@ internal sealed class WmsBrowser : UserControl
             settings.IsInPrivateModeEnabled=false;
             await _view.EnsureCoreWebView2Async(env,settings);
             var core=_view.CoreWebView2;
-            core.Settings.IsWebMessageEnabled=false;
+            // The separate, user-started recorder listens to filtered DOM events.
+            // No HTTP payloads, cookie reads or DevTools network capture.
+            core.Settings.IsWebMessageEnabled=true;
             core.Settings.AreDevToolsEnabled=false;
             core.Settings.AreDefaultContextMenusEnabled=false;
             core.Settings.IsPasswordAutosaveEnabled=true;
             // Password manager is separate from saving names, addresses and other form data.
             core.Settings.IsGeneralAutofillEnabled=false;
             await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsWorkflowJs.Script);
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsRecorderJs.Script);
+            core.WebMessageReceived+=(_,e)=>
+            {
+                if(!_recorder.Active)return;
+                try{_recorder.Accept(e.TryGetWebMessageAsString(),e.Source);}
+                catch{_storage.Trace("RECORDER","INVALID_MESSAGE","ERROR");}
+            };
             core.NavigationStarting+=(_,e)=>{
                 if(!AllowedUrl(e.Uri))
                 {
@@ -106,10 +118,24 @@ internal sealed class WmsBrowser : UserControl
                     _storage.Trace("WEB","URL_BLOCKED","BLOCKED");
                 }
             };
-            core.NavigationCompleted+=(_,e)=>
+            core.NavigationCompleted+=async (_,e)=>
             {
                 _storage.Trace("WEB",e.IsSuccess?"NAVIGATION_DONE":"NAVIGATION_ERROR",
                     e.IsSuccess?"OK":"ERROR");
+                if(_recorder.Active)
+                {
+                    _recorder.Navigation(core.Source,e.IsSuccess?"LOADED":"ERROR");
+                    if(e.IsSuccess)
+                    {
+                        try
+                        {
+                            await core.ExecuteScriptAsync(WmsRecorderJs.Script);
+                            await core.ExecuteScriptAsync(
+                                "window.__supraActionsV17?.setActive(true)");
+                        }
+                        catch{_storage.Trace("RECORDER","NAV_REATTACH_FAILED","ERROR");}
+                    }
+                }
                 if(!e.IsSuccess)return;
                 if(!_clearingProfile && Uri.TryCreate(core.Source,UriKind.Absolute,out var destination) &&
                    (destination.Host.Equals("auth-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) ||
@@ -124,14 +150,64 @@ internal sealed class WmsBrowser : UserControl
                 e.Handled=true;
                 _storage.Trace("WEB","POPUP_BLOCKED","NEEDS_HUMAN");
             };
+            // Clear site sessions from both WMS and auth origins in THIS application's
+            // WebView2 profile before first network navigation. This intentionally
+            // preserves PasswordAutosave, GeneralAutofill, browser history and settings.
+            // Fail closed: never open WMS using an existing session if clearing fails.
+            await core.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.AllSite);
+            _storage.Trace("WEB","STARTUP_SITE_SESSION_CLEARED","DONE");
             Ready=true;
             core.Navigate(Target);
         }
-        catch
+        catch(Exception e)
         {
             _storage.Trace("WEB","INIT_FAILED","ERROR");
-            throw new InvalidOperationException("WebView2 không khởi tạo được. Kiểm tra WebView2 Runtime.");
+            throw new InvalidOperationException("Không khởi tạo WMS hoặc không xóa được phiên cũ. "+
+                "Trình duyệt chưa mở để tránh dùng lại phiên đăng nhập. "+e.Message,e);
         }
+    }
+    public async Task BeginRecordingAsync()
+    {
+        if(!Ready||_view.CoreWebView2==null)
+            throw new InvalidOperationException("Trình duyệt WMS chưa sẵn sàng.");
+        var core=_view.CoreWebView2;
+        if(!WmsActionRecorder.AllowedSource(core.Source))
+            throw new InvalidOperationException("Đăng nhập WMS trước khi bật ghi thao tác.");
+        await _recorder.StartAsync(core.Source);
+        try
+        {
+            await core.ExecuteScriptAsync(WmsRecorderJs.Script);
+            var result=await core.ExecuteScriptAsync("!!window.__supraActionsV17");
+            if(result!="true")throw new InvalidOperationException("DOM recorder chưa được cài vào trang.");
+            await core.ExecuteScriptAsync("window.__supraActionsV17.setActive(true)");
+            _storage.Trace("RECORDER","START","DONE");
+        }
+        catch
+        {
+            // Preserve partial recording, stop and export whenever possible.
+            try{await _recorder.StopAndExportAsync();}catch{}
+            _storage.Trace("RECORDER","START","ERROR");
+            throw;
+        }
+    }
+    public async Task<string> EndRecordingAsync()
+    {
+        if(!_recorder.Active)
+            throw new InvalidOperationException("Chưa bắt đầu ghi thao tác.");
+        var core=_view.CoreWebView2;
+        if(core is not null)
+        {
+            try
+            {
+                await core.ExecuteScriptAsync("window.__supraActionsV17?.snapshot('Finish recording')");
+                await Task.Delay(130);
+                await core.ExecuteScriptAsync("window.__supraActionsV17?.setActive(false)");
+            }
+            catch{_storage.Trace("RECORDER","FINAL_SNAPSHOT_UNAVAILABLE","ERROR");}
+        }
+        var file=await _recorder.StopAndExportAsync();
+        _storage.Trace("RECORDER","EXPORTED","DONE",0,"EVENTS="+_recorder.Count);
+        return file;
     }
     private static bool AllowedUrl(string text)
     {
