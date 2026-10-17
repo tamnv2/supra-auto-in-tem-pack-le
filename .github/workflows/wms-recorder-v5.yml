@@ -5,6 +5,11 @@ on:
     paths:
       - "tools/wms-recorder-v5/**"
       - ".github/workflows/wms-recorder-v5.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/wms-recorder-v5/**"
+      - ".github/workflows/wms-recorder-v5.yml"
   workflow_dispatch:
 permissions:
   contents: read
