@@ -577,6 +577,7 @@ public sealed class MainForm : Form
         var accountOpenAttempts=0;
         var boothOpenAttempts=0;
         var boothSubmissionAttempts=0;
+        var boothInputWaits=0;
         var stationReadbackWaits=0;
         var printerExpandAttempts=0;
         var readyWaits=0;
@@ -631,7 +632,11 @@ public sealed class MainForm : Form
                         if(++stationReadbackWaits>=3){Manual("BOOTH_MODAL_NOT_DISMISSED");break;}
                         continue; // WMS may be validating an earlier submission.
                     }
-                    if(!p.boothInputReady){Manual("BOOTH_INPUT_NOT_READY");break;}
+                    if(!p.boothInputReady)
+                    {
+                        if(++boothInputWaits>=5){Manual("BOOTH_INPUT_NOT_READY");break;}
+                        continue; // Angular may create the dialog shell before the input.
+                    }
                     boothSubmissionAttempts++;
                     if(!await Step("BOOTH_SET"))break;
                     // Give Angular form validation time to enable its confirm action.
