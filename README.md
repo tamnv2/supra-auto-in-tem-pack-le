@@ -24,3 +24,12 @@
 GitHub Actions chạy kiểm tra JavaScript, test tương tác dialog, regression kiến trúc, compile Windows x64, smoke XLSX/log/lịch sử và đóng gói checksum SHA256. CI không thay thế kiểm thử trực tiếp trên WMS, mạng Office và máy in. Đặc biệt cần thử chuyển qua tab Nghiệp vụ mà WebView2 vẫn xử lý được và thử browser-native lưu mật khẩu.
 
 Chỉ dùng khi được doanh nghiệp cho phép. Không giả mạo trình duyệt hoặc né hệ thống quản lý thiết bị.
+
+
+## v1.5.0 — Thiết lập WMS và sản lượng trong ngày
+
+- Sau đăng nhập WMS, công cụ thử trở về màn hình đóng gói PTVC; nếu hiện đúng hộp thoại **NHẬP MÃ QUẦY ĐÓNG GÓI**, điền `SDG.24` và bấm Xác nhận. Sau đó tìm menu tài khoản → Thiết lập máy in; nếu trống, chọn `21-1129-D29 (Online)`, xác nhận; nếu đã có máy in thì đóng hộp. Chỉ click khi các phần tử được nhận diện duy nhất trong đúng ngữ cảnh.
+- Nếu giao diện công ty khác với mẫu nhận diện, ứng dụng dừng tự thiết lập và chuyển đến tab WMS; người dùng tự hoàn tất rồi bấm Xác nhận WMS sẵn sàng. Không tự tuyên bố trạng thái khi chưa xác minh.
+- Các tab tăng kích thước và nổi bật trạng thái chọn. Form nhập Tote/số kiện và nút bấm được mở rộng; một nút Thêm nhân sự chấp nhận `A,B,C` hoặc `A, B, C`; hộp chọn mặc định tên đầu tiên.
+- Lịch sử hiển thị **Thời gian xử lí**, **Số SKU**, **Số kiện**, **Pcs**, **Điểm**; kết quả Excel đồng nhất. Trường mới nullable nên dữ liệu cũ không biến thành 0. Số kiện phiên bản này ghi từ số nhân viên nhập trên phần mềm (chưa xác minh độc lập từ WMS). Số SKU/Pcs/Điểm đợi thống nhất cách đọc WMS.
+- Tab **Sản lượng hôm nay** tổng hợp số DO duy nhất hoàn tất, lượt thành công/chưa hoàn tất, tổng thời gian xử lý, trung vị thời gian và số điểm **nếu có** theo người từ lịch sử local. Không coi thời gian xử lý là thời gian ca, không xếp hạng năng suất khi thiếu điểm.
