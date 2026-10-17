@@ -14,7 +14,7 @@ public sealed class MainForm : Form
     private readonly Button _ok=MakeButton("CHỌN NHÂN SỰ",205);
     private readonly Button _show=MakeButton("MỞ TRÌNH DUYỆT",170);
     private readonly Button _stop=MakeButton("DỪNG / XỬ LÝ TAY",195);
-    private readonly Button _recover=MakeButton("XÁC MINH WMS SẴN SÀNG",215);
+    private readonly Button _recover=MakeButton("XÁC NHẬN WMS SẴN SÀNG",275);
     private readonly Button _peopleButton=MakeButton("QUẢN LÝ NHÂN SỰ",190);
     private readonly Button _exportXlsx=MakeButton("XUẤT LỊCH SỬ XLSX",190);
     private readonly Button _exportLog=MakeButton("XUẤT LOG",135);
@@ -105,7 +105,7 @@ public sealed class MainForm : Form
             e.Graphics.DrawString(_tabs.TabPages[e.Index].Text,font,ink,area,format);
         };
         var title=new Panel{Dock=DockStyle.Top,Height=62,BackColor=_navy};
-        title.Controls.Add(new Label{Text="WMS  |  PACKING & PRODUCTIVITY ASSISTANT",Dock=DockStyle.Fill,
+        title.Controls.Add(new Label{Text="WMS  |  HỖ TRỢ ĐÓNG GÓI VÀ GHI NHẬN NĂNG SUẤT",UseMnemonic=false,Dock=DockStyle.Fill,
             Padding=new Padding(18,0,0,0),TextAlign=ContentAlignment.MiddleLeft,
             ForeColor=Color.White,Font=new Font("Segoe UI",17,FontStyle.Bold)});
         var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=5,Padding=new Padding(16,12,16,12)};
@@ -143,11 +143,11 @@ public sealed class MainForm : Form
         root.Controls.Add(_status,0,2);
         var historyToolbar=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Margin=new Padding(0)};
         historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
-        historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,330));
+        historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,365));
         historyToolbar.Controls.Add(_historyHeading,0,0);
         var exports=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,
             FlowDirection=FlowDirection.RightToLeft,Margin=new Padding(0)};
-        _exportXlsx.Width=175;_exportLog.Width=125;
+        _exportXlsx.Width=206;_exportLog.Width=145;
         exports.Controls.AddRange([_exportLog,_exportXlsx]);
         historyToolbar.Controls.Add(exports,1,0);
         root.Controls.Add(historyToolbar,0,3);
@@ -184,7 +184,7 @@ public sealed class MainForm : Form
         Controls.Add(_tabs);
         var columns=new[]{"Ngày","Bắt đầu","Kết thúc","Thời gian xử lí","Nhân sự","Mã SO","Mã DO","Số SKU","Số kiện","Pcs","Kết quả","Điểm"};
         foreach(var item in columns)_history.Columns.Add(item,item);
-        var widths=new[]{108,95,95,158,160,145,145,96,96,90,238,95};
+        var widths=new[]{108,95,95,185,160,145,145,100,100,95,238,98};
         _history.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.None;
         _history.ScrollBars=ScrollBars.Both;
         for(var i=0;i<widths.Length;i++)_history.Columns[i].Width=widths[i];
