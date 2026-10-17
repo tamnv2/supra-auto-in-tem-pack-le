@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build WMS Packing Assistant
 
 on:
   push:
@@ -38,6 +38,11 @@ jobs:
         run: |
           node tests/wms-dialog-regression.cjs
           if ($LASTEXITCODE -ne 0) { throw 'WMS_DIALOG_REGRESSION_FAILED' }
+      - name: V1.4 architecture regression
+        shell: pwsh
+        run: |
+          node tests/v1.4-architecture.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'ARCHITECTURE_GUARD_FAILED' }
       - name: Build Windows x64 portable
         shell: pwsh
         run: |
@@ -48,24 +53,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'RESTORE_FAILED' }
           dotnet publish ./SupraAutoPackLe.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -p:Version=$version -o publish
           if ($LASTEXITCODE -ne 0) { throw 'PUBLISH_FAILED' }
-          if (!(Test-Path publish/SupraAutoPackLe.exe)) { throw 'EXE_MISSING' }
+          if (!(Test-Path publish/WmsPackingAssistant.exe)) { throw 'EXE_MISSING' }
       - name: Verify EXE start and XLSX/local-log smoke
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath (Resolve-Path 'publish/SupraAutoPackLe.exe').Path -ArgumentList '--startup-smoke' -PassThru -Wait -NoNewWindow
+          $p = Start-Process -FilePath (Resolve-Path 'publish/WmsPackingAssistant.exe').Path -ArgumentList '--startup-smoke' -PassThru -Wait -NoNewWindow
           if ($p.ExitCode -ne 0) { throw "SMOKE_FAILED_CODE_$($p.ExitCode)" }
       - name: Package and checksum
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force output | Out-Null
-          Compress-Archive -Path 'publish/*' -DestinationPath 'output/SupraAutoPackLe-win-x64.zip' -Force
-          $sha = (Get-FileHash 'output/SupraAutoPackLe-win-x64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$sha  SupraAutoPackLe-win-x64.zip" | Set-Content -Encoding ascii 'output/SupraAutoPackLe-win-x64.zip.sha256'
+          Compress-Archive -Path 'publish/*' -DestinationPath 'output/WmsPackingAssistant-win-x64.zip' -Force
+          $sha = (Get-FileHash 'output/WmsPackingAssistant-win-x64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  WmsPackingAssistant-win-x64.zip" | Set-Content -Encoding ascii 'output/WmsPackingAssistant-win-x64.zip.sha256'
           Get-ChildItem output | Format-Table Name,Length
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SupraAutoPackLe-win-x64
+          name: WmsPackingAssistant-win-x64
           path: output/*
           if-no-files-found: error
           retention-days: 30
@@ -80,7 +85,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: SupraAutoPackLe-win-x64
+          name: WmsPackingAssistant-win-x64
           path: output
       - name: Publish immutable release files
         env:
@@ -93,4 +98,4 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $tag already exists; no overwrite"; exit 0
           fi
-          gh release create "$tag" output/SupraAutoPackLe-win-x64.zip output/SupraAutoPackLe-win-x64.zip.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "SUPRA Auto In Tem Pack Le $tag" --generate-notes
+          gh release create "$tag" output/WmsPackingAssistant-win-x64.zip output/WmsPackingAssistant-win-x64.zip.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "WMS Packing & Productivity Assistant $tag" --generate-notes

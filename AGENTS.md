@@ -11,11 +11,11 @@ Read in order before modifying:
 
 ## Development and release
 - Branch -> PR -> Windows Actions compile PASS -> review -> merge. Ship EXE ZIP artifact for field testing; field PASS requires real Windows + WMS + printer testing, never inferred from source or CI.
-- Preserve user-approved flow: Tote scan/Enter, parcel count/Enter, staff selection confirmation, WMS browser in a separate form with manual login+printer setup and Hide/Show, guarded WMS DOM sequence, local history and diagnostics export.
+- Preserve user-approved flow: Tote scan/Enter, parcel count/Enter, staff selection confirmation, WMS browser embedded in a persistent TabPage with manual login+printer setup and tab switching, guarded WMS DOM sequence, local history and diagnostics export.
 - Safety invariants: exact role/name/context target not screen coordinates or dynamic IDs; count must replace existing value then readback exact; one Tote at a time; no automatic retry of non-idempotent actions; on uncertain result stop and request manual WMS review.
 - Data: person's name and SO/DO stored ONLY in authorized local business history, not debug logs; business history XLSX; sanitized JSONL ZIP by date range; no automatic uploads.
-- Security: WMS WebView2 InPrivate per run. Absolutely no code that reads/persists/logs password, cookie, token, auth header, HTTP requests, browser storage or raw HTML. Public repo: no data dumps, real histories, private employee lists or signed builds with secrets.
-- Updates: on-demand GitHub Release asset download, checksum verification and staged replacement when idle. If Github unreachable over Office, allow manual ZIP overwrite; no polling or background update.
+- Security: WebView2 now has a persistent per-user browser-managed profile to allow opt-in saved passwords. Profile may retain authentication state. Application code must never inspect, log or export passwords, cookies, tokens, authorization data, WMS HTML or network request/response. Never commit real browser profile or business data.
+- Updates: manual ZIP/EXE installation only; no in-app updater or PowerShell installer. Optional autostart uses HKCU Run only for current standard user, with no elevation or policy bypass.
 - Field status: first release is trial candidate until Owner confirms on actual packing workflow. EXE compilation is not printer-output verification.
 
 ## Documentation continuity

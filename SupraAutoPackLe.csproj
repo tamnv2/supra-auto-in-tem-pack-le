@@ -5,11 +5,14 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>SupraAutoPackLe</AssemblyName>
+    <AssemblyName>WmsPackingAssistant</AssemblyName>
     <RootNamespace>SupraAutoPackLe</RootNamespace>
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <AssemblyTitle>WMS Packing &amp; Productivity Assistant</AssemblyTitle>
+    <Product>WMS Packing &amp; Productivity Assistant</Product>
+    <Description>Warehouse packing workflow assistance and local productivity records</Description>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3351.48"/>

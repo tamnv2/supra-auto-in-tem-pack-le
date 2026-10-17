@@ -46,3 +46,15 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Ở START/FINAL, sau khi ghi `history.jsonl` phải kiểm tra **đọc ngược lại qua cùng logic như bảng/Excel**. Log `READBACK_START/FINAL DONE/ERROR`, `DISPLAY_COUNTS TODAY=...;READ_ERROR=...`, `HISTORY_XLSX ROWS=...`, không ghi PII/SO/DO/Tote vào log.
 - Kiểm thử thêm tình huống Windows Culture dấu chấm và dữ liệu ngày lịch sử cũ dấu chấm/gạch; xuất XLSX chọn ngày cũ phải có số dòng đúng.
 - Vẫn chưa thể xác nhận in nhãn vật lý / thao tác WMS bằng GitHub Actions; Owner test thực tế sau phát hành.
+
+
+## v1.4.0 — Approved 2026-10-17: embedded tabs, browser password profile, standard user startup, manual update
+
+- Name: WMS Packing & Productivity Assistant, clearly described as independent packing automation **and** productivity tracker. App writes parcel quantity in an authorized workflow, requests label printing and confirms completion; never describe it as read-only or official WMS software.
+- UI: Operations, WMS Browser and About/Privacy tabs in one WinForms window; WebView2 is one persistent control, not a separate Form. Initially show WMS tab for manual login/printer setup; after successful WMS return, focus Tote on Operations. On uncertainty, show browser tab.
+- Persistent WebView2 profile under existing LocalStore root. InPrivate disabled; native password autosave enabled at user request. Important exception to prior policy: native WebView2 profile **may store** password, cookies and session token; app code must not inspect, manipulate, log or export any credentials. General autofill disabled.
+- Keep existing WMS SO/DO reading and future ability to read SKU count, parcel count, SO points; these additional metrics are **not implemented** without confirmed DOM source. Do not export business data in debug logs.
+- Delete in-app online updater and update button. Release ZIP/EXE only for manual installation; preserve old history root, rename EXE to WmsPackingAssistant.exe.
+- Optional auto-run with Windows uses current-user HKCU Run only, no admin, no service/task and no security-policy bypass; indicate failure if denied.
+- About tab explicitly discloses UI WMS interactions, history vs technical logs, browser-managed credential persistence, no automated data uploads and independent product status.
+- Field PASS requires testing on actual managed Windows machine/mạng Office for password save, background WebView2 while another tab is visible, in-label print dialogs, old history compatibility and standard-user autostart; CI cannot verify corporate permissions or physical printing.
