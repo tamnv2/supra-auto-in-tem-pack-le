@@ -55,7 +55,7 @@ public sealed class MainForm : Form
         RefreshHistory();
         _midnightCheck.Tick+=(_,_)=>{if(_displayDate!=DateTime.Today)RefreshHistory();};
         _midnightCheck.Start();
-        Activated+=(_,_)=>{if(!_busy&&!_needsRecovery&&_tote.Enabled)_tote.Focus();};
+        Activated+=(_,_)=>{if(_tabs.SelectedTab==_operationTab&&!_busy&&!_needsRecovery&&_tote.Enabled)_tote.Focus();};
         Status("INIT","Mở cửa sổ WMS, đăng nhập và chọn máy in trước khi dùng.");
         Shown+=async (_,_)=>{
             _tabs.SelectedTab=_webTab;
