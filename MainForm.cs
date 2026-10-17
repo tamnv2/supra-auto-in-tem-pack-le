@@ -9,19 +9,22 @@ public sealed class MainForm : Form
     private readonly LocalStore _store=new();
     private readonly WmsBrowser _browser;
     private readonly Stopwatch _watch=new();
-    private readonly TextBox _tote=new(){Width=320,Font=new Font("Segoe UI",14)};
-    private readonly TextBox _qty=new(){Width=160,Font=new Font("Segoe UI",14)};
-    private readonly Button _ok=MakeButton("OK – CHỌN NHÂN SỰ",200);
+    private readonly TextBox _tote=new(){Width=320,Font=new Font("Segoe UI",19,FontStyle.Bold)};
+    private readonly TextBox _qty=new(){Width=160,Font=new Font("Segoe UI",19,FontStyle.Bold)};
+    private readonly Button _ok=MakeButton("CHỌN NHÂN SỰ",205);
     private readonly Button _show=MakeButton("MỞ TRÌNH DUYỆT",170);
     private readonly Button _stop=MakeButton("DỪNG / XỬ LÝ TAY",195);
-    private readonly Button _recover=MakeButton("XÁC MINH WMS SẴN SÀNG",215);
+    private readonly Button _recover=MakeButton("XÁC NHẬN WMS SẴN SÀNG",275);
     private readonly Button _peopleButton=MakeButton("QUẢN LÝ NHÂN SỰ",190);
     private readonly Button _exportXlsx=MakeButton("XUẤT LỊCH SỬ XLSX",190);
     private readonly Button _exportLog=MakeButton("XUẤT LOG",135);
     private readonly TabControl _tabs=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",10)};
     private readonly TabPage _operationTab=new("NGHIỆP VỤ");
     private readonly TabPage _webTab=new("TRÌNH DUYỆT WMS");
+    private readonly TabPage _productionTab=new("SẢN LƯỢNG HÔM NAY");
     private readonly TabPage _aboutTab=new("THÔNG TIN PHẦN MỀM");
+    private readonly Label _productionOverview=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",12,FontStyle.Bold),Padding=new Padding(12),BackColor=Color.White};
+    private readonly DataGridView _productionGrid=new(){Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,RowHeadersVisible=false,BackgroundColor=Color.White,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.None,ScrollBars=ScrollBars.Both};
     private readonly CheckBox _startWithWindows=new(){AutoSize=true,Text="Tự động chạy khi đăng nhập Windows"};
     private readonly Label _status=new(){AutoSize=false,Height=68,Font=new Font("Segoe UI",10,FontStyle.Bold)};
     private readonly DataGridView _history=new(){
@@ -38,6 +41,9 @@ public sealed class MainForm : Form
     private bool _busy;
     private bool _needsRecovery;
     private bool _changingStartupSetting;
+    private bool _setupDone;
+    private bool _setupRunning;
+    private bool _printerVerified;
     private string _stage="INIT";
     private static readonly Regex ToteFormat=new("^[A-Za-z0-9_-]{2,64}$",RegexOptions.Compiled);
     private static readonly Regex CodeFormat=new("^[A-Za-z0-9_-]{5,50}$",RegexOptions.Compiled);
@@ -46,9 +52,28 @@ public sealed class MainForm : Form
     {
         _people=_store.LoadPeople();
         _browser=new WmsBrowser(_store,()=>_tabs.SelectedTab=_webTab);
+        _browser.LoginRequired+=()=>
+        {
+            if(!_setupDone||IsDisposed)return;
+            _setupDone=false;
+            _printerVerified=false;
+            _browser.BeginStartupRouting();
+            if(_busy)
+            {
+                _needsRecovery=true;
+                Status("FAULT","Phiên WMS chuyển sang đăng nhập khi đang xử lý. Phải kiểm tra WMS thủ công.");
+            }
+            else
+            {
+                Status("INIT","WMS yêu cầu đăng nhập lại. Chờ thiết lập quầy và máy in.");
+                _=RunInitialSetupAsync();
+            }
+            _browser.Reveal();
+            UpdateControls();
+        };
         Text="WMS Packing & Productivity Assistant | "+Application.ProductVersion;
         Font=new Font("Segoe UI",10);
-        MinimumSize=new Size(780,610);Width=1040;Height=790;
+        MinimumSize=new Size(1040,675);Width=1380;Height=850;
         StartPosition=FormStartPosition.CenterScreen;
         BackColor=Color.FromArgb(247,249,252);
         Compose();
@@ -62,7 +87,8 @@ public sealed class MainForm : Form
             try
             {
                 await _browser.InitializeAsync();
-                Status("READY","Đăng nhập WMS và chọn máy in tại tab Trình duyệt, sau đó chọn Nghiệp vụ.");
+                Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
+                _=RunInitialSetupAsync();
             }
             catch { Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime."); }
         };
@@ -70,43 +96,59 @@ public sealed class MainForm : Form
             _midnightCheck.Stop();
             _midnightCheck.Dispose();
             _cancel?.Cancel();
+            _setupRunning=false;
             _store.Trace("APP","CLOSING",_busy?"UNCERTAIN":"OK",_watch.ElapsedMilliseconds);
             _browser.Terminate();
         };
     }
     private static Button MakeButton(string label,int width)
     {
-        return new Button{Text=label,Width=width,Height=38,
+        return new Button{Text=label,Width=width,Height=44,Font=new Font("Segoe UI",11,FontStyle.Bold),
           FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(30,102,175),
           ForeColor=Color.White,UseVisualStyleBackColor=false};
     }
     private void Compose()
     {
+        _tabs.DrawMode=TabDrawMode.OwnerDrawFixed;
+        _tabs.SizeMode=TabSizeMode.Fixed;
+        _tabs.ItemSize=new Size(245,48);
+        _tabs.DrawItem+=(_,e)=>
+        {
+            var selected=e.Index==_tabs.SelectedIndex;
+            var area=e.Bounds;
+            using var bg=new SolidBrush(selected?_navy:Color.FromArgb(231,237,245));
+            using var ink=new SolidBrush(selected?Color.White:Color.FromArgb(30,45,68));
+            e.Graphics.FillRectangle(bg,area);
+            using var font=new Font("Segoe UI",selected?11.5f:10.5f,FontStyle.Bold);
+            using var format=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center,Trimming=StringTrimming.EllipsisCharacter};
+            e.Graphics.DrawString(_tabs.TabPages[e.Index].Text,font,ink,area,format);
+        };
         var title=new Panel{Dock=DockStyle.Top,Height=62,BackColor=_navy};
-        title.Controls.Add(new Label{Text="WMS  |  PACKING & PRODUCTIVITY ASSISTANT",Dock=DockStyle.Fill,
+        title.Controls.Add(new Label{Text="WMS  |  HỖ TRỢ ĐÓNG GÓI VÀ GHI NHẬN NĂNG SUẤT",UseMnemonic=false,Dock=DockStyle.Fill,
             Padding=new Padding(18,0,0,0),TextAlign=ContentAlignment.MiddleLeft,
             ForeColor=Color.White,Font=new Font("Segoe UI",17,FontStyle.Bold)});
         var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=5,Padding=new Padding(16,12,16,12)};
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,94));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,55));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,116));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,70));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,68));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,62));
         root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         var inputs=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,Margin=new Padding(0,0,0,8)};
-        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,43));
-        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,22));
-        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,35));
+        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,48));
+        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,28));
+        inputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,24));
         var t=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1,Margin=new Padding(0,0,10,0)};
-        t.RowStyles.Add(new RowStyle(SizeType.Absolute,24));
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute,32));
         t.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        t.Controls.Add(new Label{Text="QUÉT MÃ TOTE",Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,0);
+        t.Controls.Add(new Label{Text="QUÉT MÃ TOTE",Dock=DockStyle.Fill,Font=new Font("Segoe UI",12,FontStyle.Bold),TextAlign=ContentAlignment.MiddleLeft},0,0);
         _tote.Dock=DockStyle.Fill;_tote.Margin=new Padding(0,0,0,6);t.Controls.Add(_tote,0,1);
         var q=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,ColumnCount=1,Margin=new Padding(0,0,10,0)};
-        q.RowStyles.Add(new RowStyle(SizeType.Absolute,24));
+        q.RowStyles.Add(new RowStyle(SizeType.Absolute,32));
         q.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        q.Controls.Add(new Label{Text="SỐ KIỆN",Dock=DockStyle.Fill,TextAlign=ContentAlignment.MiddleLeft},0,0);
+        q.Controls.Add(new Label{Text="SỐ KIỆN",Dock=DockStyle.Fill,Font=new Font("Segoe UI",12,FontStyle.Bold),TextAlign=ContentAlignment.MiddleLeft},0,0);
         _qty.Dock=DockStyle.Fill;_qty.Margin=new Padding(0,0,0,6);q.Controls.Add(_qty,0,1);
-        _ok.Dock=DockStyle.Fill;_ok.Margin=new Padding(2,16,0,6);
+        _ok.Dock=DockStyle.Fill;_ok.Margin=new Padding(6,26,0,6);
+        _ok.Font=new Font("Segoe UI",12,FontStyle.Bold);
         _ok.BackColor=Color.FromArgb(25,122,78);
         inputs.Controls.Add(t,0,0);inputs.Controls.Add(q,1,0);inputs.Controls.Add(_ok,2,0);
         root.Controls.Add(inputs,0,0);
@@ -120,11 +162,11 @@ public sealed class MainForm : Form
         root.Controls.Add(_status,0,2);
         var historyToolbar=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,Margin=new Padding(0)};
         historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
-        historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,330));
+        historyToolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,365));
         historyToolbar.Controls.Add(_historyHeading,0,0);
         var exports=new FlowLayoutPanel{Dock=DockStyle.Fill,WrapContents=false,
             FlowDirection=FlowDirection.RightToLeft,Margin=new Padding(0)};
-        _exportXlsx.Width=175;_exportLog.Width=125;
+        _exportXlsx.Width=206;_exportLog.Width=145;
         exports.Controls.AddRange([_exportLog,_exportXlsx]);
         historyToolbar.Controls.Add(exports,1,0);
         root.Controls.Add(historyToolbar,0,3);
@@ -148,17 +190,23 @@ public sealed class MainForm : Form
         _operationTab.Controls.Add(root);
         _operationTab.Controls.Add(title);
         _webTab.Controls.Add(_browser);
+        _productionTab.Controls.Add(BuildProductionTab());
         _aboutTab.Controls.Add(BuildAboutTab());
-        _tabs.TabPages.AddRange([_operationTab,_webTab,_aboutTab]);
+        _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab]);
         _tabs.SelectedIndexChanged+=(_,_)=>{
+            if(_tabs.SelectedTab==_productionTab)
+                RefreshProduction(_store.FilterHistory(DateTime.Today,DateTime.Today));
             if(_tabs.SelectedTab==_operationTab && !_busy && !_needsRecovery)
                 _tote.Focus();
+            _tabs.Invalidate();
         };
         Controls.Add(_tabs);
-        var columns=new[]{"Ngày","Bắt đầu","Kết thúc","Giây","Nhân sự","Mã SO","Mã DO","Kết quả"};
+        var columns=new[]{"Ngày","Bắt đầu","Kết thúc","Thời gian xử lí","Nhân sự","Mã SO","Mã DO","Số SKU","Số kiện","Pcs","Kết quả","Điểm"};
         foreach(var item in columns)_history.Columns.Add(item,item);
-        var weights=new float[]{13,10,10,6,13,13,13,22};
-        for(var i=0;i<weights.Length;i++){_history.Columns[i].FillWeight=weights[i];_history.Columns[i].MinimumWidth=i==7?175:65;}
+        var widths=new[]{108,95,95,185,160,145,145,100,100,95,238,98};
+        _history.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.None;
+        _history.ScrollBars=ScrollBars.Both;
+        for(var i=0;i<widths.Length;i++)_history.Columns[i].Width=widths[i];
         _tote.KeyDown+=(_,e)=>{if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;_qty.Focus();_qty.SelectAll();}};
         _qty.KeyDown+=async (_,e)=>{if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;await OnSubmitAsync();}};
         _ok.Click+=async (_,_)=>await OnSubmitAsync();
@@ -172,13 +220,83 @@ public sealed class MainForm : Form
         };
         _recover.Click+=async (_,_)=>{
             var p=await _browser.PeekAsync();
-            if(p?.ready==true){_needsRecovery=false;Status("READY","Đã xác nhận WMS về ô Tote.");
-                UpdateControls();FocusToteIfIdle();}
+            if(p?.ready==true)
+            {
+                if(!_printerVerified &&
+                    MessageBox.Show(this,
+                    "Đã chọn đúng quầy SDG.24 và xác nhận máy in đang hoạt động trên WMS? "+
+                    "Chỉ xác nhận nếu đã kiểm tra bằng tay.",
+                    "Xác nhận thiết lập WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+                _setupDone=true;_needsRecovery=false;_setupRunning=false;
+                _browser.StopStartupRouting();
+                Status("READY","Đã xác nhận màn hình quét Tote và máy in sẵn sàng.");
+                UpdateControls();FocusToteIfIdle();
+            }
             else{_browser.Reveal();MessageBox.Show("WMS chưa trở về màn hình quét Tote. Hãy hoàn tất bằng tay.");}
         };
         _exportXlsx.Click+=(_,_)=>ExportXlsx();
         _exportLog.Click+=(_,_)=>ExportLogs();
         UpdateControls();
+    }
+
+    private Control BuildProductionTab()
+    {
+        var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,
+            Padding=new Padding(14),BackColor=Color.FromArgb(247,249,252)};
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,135));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,84));
+        var head=new Label{Dock=DockStyle.Fill,Font=new Font("Segoe UI",11),
+            Text="Báo cáo từ lịch sử lưu trên máy. DO chỉ tính khi vòng giao diện WMS hoàn tất. "+
+                 "Tổng thời gian xử lý KHÔNG phải tổng giờ làm việc; các khoảng nghỉ/chờ giữa các lượt không được tính. "+
+                 "Chưa có dữ liệu điểm/SKU/Pcs thì không chấm điểm hoặc xếp hạng hiệu suất.",
+            BackColor=Color.White,Padding=new Padding(14)};
+        _productionGrid.EnableHeadersVisualStyles=false;
+        _productionGrid.ColumnHeadersHeight=44;
+        _productionGrid.ColumnHeadersDefaultCellStyle.BackColor=_navy;
+        _productionGrid.ColumnHeadersDefaultCellStyle.ForeColor=Color.White;
+        _productionGrid.ColumnHeadersDefaultCellStyle.Font=new Font("Segoe UI",10.5f,FontStyle.Bold);
+        _productionGrid.RowTemplate.Height=36;
+        _productionGrid.SelectionMode=DataGridViewSelectionMode.FullRowSelect;
+        foreach(var (name,width) in new (string,int)[]{
+            ("Nhân sự",195),("DO hoàn tất",132),("Lượt hoàn tất",132),("Cần kiểm tra",132),
+            ("Điểm ghi nhận",142),("Có điểm / lượt",145),("Tổng xử lý",143),
+            ("Trung vị / lượt",145),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
+        {
+            var column=new DataGridViewTextBoxColumn{HeaderText=name,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable};
+            _productionGrid.Columns.Add(column);
+        }
+        root.Controls.Add(_productionOverview,0,0);
+        root.Controls.Add(_productionGrid,0,1);
+        root.Controls.Add(head,0,2);
+        return root;
+    }
+    private void RefreshProduction(IReadOnlyList<HistoryRow> rows)
+    {
+        if(_productionGrid.Columns.Count==0)return;
+        var data=DailyProduction.From(rows);
+        var points=data.Points.HasValue
+            ?data.Points.Value.ToString("0.##")+" (có điểm "+data.ScoredAttempts+"/"+data.Completed+" lượt)"
+            :"Chưa có dữ liệu";
+        _productionOverview.Text="SẢN LƯỢNG NGÀY "+DateTime.Today.ToString("dd/MM/yyyy")+
+            Environment.NewLine+"DO hoàn tất: "+data.UniqueDo+
+            "     |     Lượt hoàn tất: "+data.Completed+"/"+data.Attempts+
+            "     |     Cần kiểm tra: "+data.NeedsReview+
+            Environment.NewLine+"Điểm đã ghi nhận: "+points+
+            "     |     Tổng thời gian xử lý lượt hoàn tất: "+TimeSpan.FromSeconds(data.ProcessingSeconds).ToString(@"hh\:mm\:ss")+
+            Environment.NewLine+"Đang thống kê "+data.People.Count+" nhân sự có dữ liệu trong ngày.";
+        _productionGrid.Rows.Clear();
+        foreach(var p in data.People)
+        {
+            _productionGrid.Rows.Add(p.Person,p.UniqueDo,p.Completed,p.NeedsReview,
+                p.Points?.ToString("0.##")??"Chưa có dữ liệu",
+                p.ScoredAttempts+"/"+p.Completed,
+                TimeSpan.FromSeconds(p.ProcessingSeconds).ToString(@"hh\:mm\:ss"),
+                p.MedianSeconds.HasValue?p.MedianSeconds.Value+" giây":"—",
+                p.FirstStart,p.LastEnd,
+                p.NeedsReview>0?"Có "+p.NeedsReview+" lượt cần xác minh WMS":
+                p.Completed>0?"Các lượt đã ghi nhận đều hoàn tất UI":"Chưa có lượt hoàn tất");
+        }
     }
 
     private Control BuildAboutTab()
@@ -251,11 +369,111 @@ public sealed class MainForm : Form
         panel.Controls.Add(footer,0,2);
         return panel;
     }
+
+    private async Task RunInitialSetupAsync()
+    {
+        if(_setupRunning||_setupDone||IsDisposed)return;
+        _setupRunning=true;
+        var accountOpenAttempts=0;
+        try
+        {
+            // Never change account, credentials, WMS service data or printer settings
+            // outside the specifically identified setup UI. Unknown UI => manual check.
+            while(_setupRunning&&!_setupDone&&!IsDisposed)
+            {
+                await Task.Delay(1350);
+                if(!_setupRunning||IsDisposed)break;
+                _browser.TryNavigatePackingAfterLogin();
+                var p=await _browser.SetupPeekAsync();
+                if(p?.ok!=true)continue; // Waiting for manual WMS login or navigation.
+                async Task<bool> Step(string code)
+                {
+                    var a=await _browser.SetupActionAsync(code);
+                    var safe=Regex.IsMatch(a.reason??"","^[A-Z0-9_]{1,60}$")?a.reason:"UNSPECIFIED";
+                    _store.Trace("SETUP","ACTION_"+code,a.ok?"DONE":"BLOCKED",0,a.ok?"":safe);
+                    if(a.ok)return true;
+                    Status("FAULT","Không xác minh được bước thiết lập "+code+". Chọn tab WMS để làm bằng tay, sau đó bấm Xác nhận sẵn sàng.");
+                    _browser.Reveal();
+                    _setupRunning=false;
+                    return false;
+                }
+                if(p.boothDialog)
+                {
+                    if(!await Step("BOOTH_SET"))break;
+                    if(!await Step("BOOTH_CONFIRM"))break;
+                    accountOpenAttempts=0;
+                    continue;
+                }
+                if(p.printerDialog)
+                {
+                    if(p.printerSelected)
+                    {
+                        if(!await Step("PRINTER_CLOSE"))break;
+                        _printerVerified=true;
+                        continue;
+                    }
+                    if(p.printerOptionVisible)
+                    {
+                        if(!await Step("PRINTER_PICK"))break;
+                        await Task.Delay(350);
+                        if(!await Step("PRINTER_CONFIRM"))break;
+                        _printerVerified=true;
+                        continue;
+                    }
+                    if(p.printerEmpty)
+                    {
+                        if(!await Step("PRINTER_EXPAND"))break;
+                        continue;
+                    }
+                    Status("FAULT","Không nhận diện được máy in đã chọn. Vui lòng kiểm tra trong tab WMS.");
+                    _browser.Reveal();break;
+                }
+                if(p.settingsVisible)
+                {
+                    if(!await Step("PRINTER_MENU"))break;
+                    continue;
+                }
+                if(!p.packingReady)continue;
+                if(_printerVerified)
+                {
+                    _setupDone=true;
+                    _browser.StopStartupRouting();
+                    Status("READY","Quầy SDG.24 và máy in WMS đã được xác nhận. Sẵn sàng quét Tote.");
+                    UpdateControls();FocusToteIfIdle();
+                    break;
+                }
+                if(p.accountTriggerCount!=1 || accountOpenAttempts>=3)
+                {
+                    Status("FAULT","Cần mở tài khoản → Thiết lập máy in và kiểm tra máy in bằng tay. "+
+                        "Sau khi hoàn tất, bấm Xác nhận WMS sẵn sàng.");
+                    _browser.Reveal();break;
+                }
+                accountOpenAttempts++;
+                if(!await Step("ACCOUNT_OPEN"))break;
+            }
+        }
+        catch
+        {
+            if(!IsDisposed)
+            {
+                _store.Trace("SETUP","STARTUP_EXCEPTION","ERROR");
+                Status("FAULT","Không tự xác minh được thiết lập WMS. Kiểm tra thủ công trong tab Trình duyệt.");
+                _browser.Reveal();
+            }
+        }
+        finally
+        {
+            _setupRunning=false;
+            if(!IsDisposed)UpdateControls();
+        }
+    }
+
     private void UpdateControls()
     {
-        var allow=!_busy&&!_needsRecovery;
+        var allow=!_busy&&!_needsRecovery&&_setupDone;
         _ok.Enabled=allow;_tote.Enabled=allow;_qty.Enabled=allow;
-        _peopleButton.Enabled=!_busy;_recover.Enabled=!_busy&&_needsRecovery;
+        _peopleButton.Enabled=!_busy;
+        _recover.Enabled=!_busy&&(_needsRecovery||!_setupDone);
     }
     private void Status(string stage,string message)
     {
@@ -280,7 +498,10 @@ public sealed class MainForm : Form
         _store.Trace("HISTORY","DISPLAY_COUNTS","DONE",0,
             "TODAY="+today.Count+";READ_ERROR="+(_store.HistoryReadFailed?1:0));
         foreach(var r in today.Reverse().Take(500))
-            _history.Rows.Add(r.Date,r.Start,r.End,r.Seconds,r.Person,r.SO,r.DO,LocalStore.ResultLabel(r.Result));
+            _history.Rows.Add(r.Date,r.Start,r.End,r.Seconds,r.Person,r.SO,r.DO,
+                r.SkuCount?.ToString()??"—",r.ParcelCount?.ToString()??"—",
+                r.Pcs?.ToString()??"—",LocalStore.ResultLabel(r.Result),r.Points?.ToString("0.##")??"—");
+        RefreshProduction(today);
         _historyHeading.Text="LỊCH SỬ HÔM NAY  |  "+_displayDate.ToString("dd/MM/yyyy")+"  |  "+today.Count+" lượt";
         if(_store.HistoryReadFailed)
         {
@@ -339,7 +560,7 @@ public sealed class MainForm : Form
     }
     private async Task OnSubmitAsync()
     {
-        if(_busy||_needsRecovery)return;
+        if(_busy||_needsRecovery||!_setupDone)return;
         var tote=_tote.Text.Trim().ToUpperInvariant();
         if(!ToteFormat.IsMatch(tote)){MessageBox.Show("Mã Tote không hợp lệ.");return;}
         if(!int.TryParse(_qty.Text.Trim(),out var count)||count<1||count>9999)
@@ -359,7 +580,7 @@ public sealed class MainForm : Form
         HistoryRow Snapshot(string phase,string result) => new HistoryRow(
             LocalStore.FormatHistoryDate(started),started.ToString("HH:mm:ss"),
             DateTime.Now.ToString("HH:mm:ss"),(long)Math.Round(_watch.Elapsed.TotalSeconds),
-            person,so,doCode,result){AttemptId=attemptId,Phase=phase};
+            person,so,doCode,result){AttemptId=attemptId,Phase=phase,ParcelCount=count};
         void Checkpoint(string phase)
         {
             if(!_store.TryAppendHistory(Snapshot(phase,"IN_PROGRESS"),phase))
@@ -477,7 +698,7 @@ public sealed class MainForm : Form
         };
         using var selectedFont=new Font(list.Font.FontFamily,list.Font.Size*1.2f,FontStyle.Bold);
         list.Items.AddRange(_people.Cast<object>().ToArray());
-        list.SelectedIndex=-1; // No implicit/default employee.
+        list.SelectedIndex=list.Items.Count>0?0:-1; // Preselect first; arrows still change it.
         list.DrawItem+=(_,e)=>
         {
             if(e.Index<0||e.Index>=list.Items.Count)return;
@@ -495,7 +716,7 @@ public sealed class MainForm : Form
         var footer=new Panel{Dock=DockStyle.Bottom,Height=69,Padding=new Padding(12)};
         var confirm=MakeButton("XÁC NHẬN (ENTER)",210);
         confirm.Dock=DockStyle.Right;
-        confirm.Enabled=false;
+        confirm.Enabled=list.SelectedIndex>=0;
         list.SelectedIndexChanged+=(_,_)=>confirm.Enabled=list.SelectedIndex>=0;
         void AcceptSelection()
         {
@@ -530,11 +751,10 @@ public sealed class MainForm : Form
         void Reload(){_people=_store.LoadPeople();list.Items.Clear();list.Items.AddRange(_people.Cast<object>().ToArray());}
         Reload();
         var buttons=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=100,AutoScroll=true,WrapContents=true};
-        var add=MakeButton("THÊM",82);var bulk=MakeButton("NHẬP DẤU PHẨY",150);
+        var add=MakeButton("THÊM NHÂN SỰ (A, B, C)",270);
         var edit=MakeButton("SỬA",82);var delete=MakeButton("XÓA",82);var clear=MakeButton("XÓA TOÀN BỘ",145);
-        add.Click+=(_,_)=>{var s=Prompt("Thêm tên","");if(s!=null){_people.Add(s);_store.SavePeople(_people);Reload();}};
-        bulk.Click+=(_,_)=>{
-            var s=Prompt("Nhập nhiều tên, cách nhau bằng dấu phẩy","");
+        add.Click+=(_,_)=>{
+            var s=Prompt("Nhập nhân sự (A, B, C hoặc A,B,C)","");
             if(s==null)return;
             var parts=s.Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
             if(parts.Length<1||parts.Length>200||parts.Any(x=>!LocalStore.ValidName(x)))
@@ -543,7 +763,7 @@ public sealed class MainForm : Form
         };
         edit.Click+=(_,_)=>{if(list.SelectedIndex<0)return;
             var i=list.SelectedIndex;var s=Prompt("Sửa nhân sự",_people[i]);
-            if(s!=null){_people[i]=s;_store.SavePeople(_people);Reload();}};
+            if(s!=null){if(!LocalStore.ValidName(s)){MessageBox.Show("Chỉ sửa một tên nhân sự tại một thời điểm.");return;} _people[i]=s;_store.SavePeople(_people);Reload();}};
         delete.Click+=(_,_)=>{if(list.SelectedIndex<0)return;
             if(MessageBox.Show("Xóa người được chọn?", "Xác nhận",MessageBoxButtons.YesNo)==DialogResult.Yes)
             {_people.RemoveAt(list.SelectedIndex);_store.SavePeople(_people);Reload();}};
@@ -552,7 +772,7 @@ public sealed class MainForm : Form
                 "Xác nhận xóa toàn bộ",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)==DialogResult.Yes)
             {_people.Clear();_store.SavePeople(_people);Reload();}
         };
-        buttons.Controls.AddRange([add,bulk,edit,delete,clear]);
+        buttons.Controls.AddRange([add,edit,delete,clear]);
         f.Controls.Add(list);f.Controls.Add(buttons);f.ShowDialog(this);
     }
     private string? Prompt(string title,string initial)

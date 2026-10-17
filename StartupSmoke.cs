@@ -53,7 +53,7 @@ internal static class StartupSmoke
             {
                 var sheet=book.Worksheet("Lịch sử in tem");
                 if(sheet.LastRowUsed()?.RowNumber()!=2 ||
-                   sheet.Cell(2,8).GetString()!="Đã hoàn tất quy trình trên WMS")
+                   sheet.Cell(2,11).GetString()!="Đã hoàn tất quy trình trên WMS")
                     throw new Exception("FILTERED_XLSX_FAILED");
             }
             // Regression: legacy Windows regional settings may save a hyphen or
@@ -83,6 +83,39 @@ internal static class StartupSmoke
                         throw new Exception("RECOVERED_HISTORY_XLSX_MISSING_ROWS");
             }
             finally { CultureInfo.CurrentCulture=oldCulture; }
+            // New nullable production metrics must not change or fabricate old records.
+            var legacy=store.FilterHistory(new DateTime(2026,10,15),new DateTime(2026,10,15));
+            if(legacy.Any(x=>x.SkuCount.HasValue||x.Pcs.HasValue||x.Points.HasValue))
+                throw new Exception("LEGACY_METRICS_MUST_STAY_NULL");
+            var current=new HistoryRow("16/10/2026","10:00:00","10:00:15",15,
+                "Người thử A","SO87654321","DO87654321","UI_WORKFLOW_COMPLETE")
+            {ParcelCount=3,SkuCount=null,Pcs=null,Points=null};
+            store.AppendHistory(current);
+            var today=store.FilterHistory(new DateTime(2026,10,16),new DateTime(2026,10,16));
+            if(today.Count!=1 || today[0].ParcelCount!=3 || today[0].Points.HasValue)
+                throw new Exception("NEW_FIELD_PERSISTENCE_FAILED");
+            var daily=DailyProduction.From(today);
+            if(daily.Completed!=1||daily.UniqueDo!=1||daily.Points.HasValue||
+                daily.People.Single().MedianSeconds!=15)
+                throw new Exception("DAILY_AGGREGATION_INVALID");
+            // Duplicate DO completion cannot inflate unique daily DO count.
+            var duplicate=current with {Start="11:00:00",End="11:00:20",Seconds=20};
+            var dedup=DailyProduction.From([current,duplicate]);
+            if(dedup.UniqueDo!=1||dedup.Completed!=2||dedup.Points.HasValue)
+                throw new Exception("DUPLICATE_DO_OVERCOUNT");
+            var scored=DailyProduction.From([current,current with {DO="DO88888888",Points=12.5m}]);
+            if(scored.Points!=12.5m||scored.ScoredAttempts!=1)
+                throw new Exception("SCORE_COVERAGE_INVALID");
+            var metricsFile=Path.Combine(tmp,"metrics.xlsx");
+            store.ExportHistoryXlsx(metricsFile,new DateTime(2026,10,16),new DateTime(2026,10,16));
+            using(var book=new XLWorkbook(metricsFile))
+            {
+                var ws=book.Worksheet("Lịch sử in tem");
+                if(ws.Cell(2,9).GetString()!="3"||
+                   ws.Cell(2,8).GetString()!="Chưa có dữ liệu"||
+                   ws.Cell(2,12).GetString()!="Chưa có dữ liệu")
+                    throw new Exception("METRIC_XLSX_MISSING_PLACEHOLDERS");
+            }
             store.Trace("TEST","STARTUP_SMOKE","DONE",9,"TARGETS=1");
             var zip=Path.Combine(tmp,"testlogs.zip");
             store.ExportLogs(zip,new DateTime(2026,1,1),new DateTime(2026,12,31));

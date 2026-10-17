@@ -38,6 +38,11 @@ jobs:
         run: |
           node tests/wms-dialog-regression.cjs
           if ($LASTEXITCODE -ne 0) { throw 'WMS_DIALOG_REGRESSION_FAILED' }
+      - name: Booth and printer setup regression
+        shell: pwsh
+        run: |
+          node tests/v1.5-setup-regression.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'WMS_SETUP_REGRESSION_FAILED' }
       - name: V1.4 architecture regression
         shell: pwsh
         run: |

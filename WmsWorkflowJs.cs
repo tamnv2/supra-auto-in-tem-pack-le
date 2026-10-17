@@ -62,6 +62,95 @@ internal static class WmsWorkflowJs
         el.dispatchEvent(new Event('change',{bubbles:true}));
         return el.value===value?{ok:true}:{ok:false,reason:'COUNT_READBACK_MISMATCH'};
       };
+
+      // Start-of-shift setup. All decisions are anchored to observed dialog captions;
+      // the code never reads password, cookies, tokens or account identifiers.
+      const setupDialog=caption=>dialogs().filter(d=>clean(d.innerText).toLocaleUpperCase('vi').includes(caption));
+      const boothDialog=()=>unique(setupDialog('NHẬP MÃ QUẦY ĐÓNG GÓI'));
+      const printerDialog=()=>unique(setupDialog('CHỌN MÁY IN'));
+      const printerSelector=d=>d?unique(Array.from(d.querySelectorAll('mat-select,[role="combobox"],select'))
+        .filter(enabled)) : null;
+      const printerOption=()=>Array.from(document.querySelectorAll('mat-option,[role="option"]'))
+        .filter(enabled).filter(e=>name(e)==='21-1129-D29 (Online)');
+      const setupActions=()=>Array.from(document.querySelectorAll('button,[role="button"],a,[role="menuitem"],.dropdown-toggle,[aria-haspopup="menu"]'))
+        .filter(enabled);
+      const printerMenuItem=()=>setupActions().filter(e=>name(e)==='Thiết lập máy in');
+      const accountTriggers=()=>{
+        // Never click an unlabelled icon or infer a user from an index.
+        const elements=setupActions().filter(e=>
+          /(?:^|\s)Kho\s+.+/i.test(name(e)) && /\s-\s/.test(name(e)));
+        return elements;
+      };
+      const setupPeek=()=>{
+        if(!allowed())return {ok:false,reason:'WRONG_WMS_ROUTE'};
+        const b=boothDialog(),p=printerDialog(),select=printerSelector(p);
+        const selected=select?clean(select.innerText||select.value||''):'';
+        const empty=selected==='Chọn'||selected===''||selected==='-- Chọn --';
+        const options=printerOption();
+        const ready=input('Quét mã PTVC để đóng gói').length===1 && dialogs().length===0;
+        return {
+          ok:true,reason:'OK',boothDialog:!!b,printerDialog:!!p,
+          packingReady:ready,accountTriggerCount:accountTriggers().length,
+          settingsVisible:printerMenuItem().length===1,
+          printerSelected:!!p&&!!select&&!empty,
+          printerEmpty:!!p&&!!select&&empty,printerOptionVisible:options.length===1
+        };
+      };
+      const setupPerform=(action)=>{
+        if(!allowed())return {ok:false,reason:'WRONG_WMS_ROUTE'};
+        const b=boothDialog(),p=printerDialog();
+        if(action==='BOOTH_SET'){
+          if(!b)return {ok:false,reason:'BOOTH_DIALOG_MISSING'};
+          const inputs=Array.from(b.querySelectorAll('input')).filter(enabled)
+            .filter(e=>e.type!=='password');
+          const el=unique(inputs);if(!el)return {ok:false,reason:'BOOTH_INPUT_NOT_UNIQUE'};
+          return setField(el,'SDG.24');
+        }
+        if(action==='BOOTH_CONFIRM'){
+          if(!b)return {ok:false,reason:'BOOTH_DIALOG_MISSING'};
+          const inputs=Array.from(b.querySelectorAll('input')).filter(enabled).filter(e=>e.type!=='password');
+          if(inputs.length!==1||inputs[0].value!=='SDG.24')
+            return {ok:false,reason:'BOOTH_VALUE_NOT_CONFIRMED'};
+          return click(buttons(b).filter(e=>name(e)==='Xác nhận'));
+        }
+        if(action==='ACCOUNT_OPEN'){
+          if(dialogs().length)return {ok:false,reason:'UNEXPECTED_DIALOG'};
+          return click(accountTriggers());
+        }
+        if(action==='PRINTER_MENU'){
+          if(dialogs().length)return {ok:false,reason:'UNEXPECTED_DIALOG'};
+          return click(printerMenuItem());
+        }
+        if(action==='PRINTER_EXPAND'){
+          if(!p)return {ok:false,reason:'PRINTER_DIALOG_MISSING'};
+          const selector=printerSelector(p);
+          if(!selector)return {ok:false,reason:'PRINTER_SELECTOR_NOT_UNIQUE'};
+          const selected=clean(selector.innerText||selector.value||'');
+          if(selected!==''&&selected!=='Chọn'&&selected!=='-- Chọn --')
+            return {ok:false,reason:'PRINTER_ALREADY_SELECTED'};
+          selector.click();return {ok:true};
+        }
+        if(action==='PRINTER_PICK'){
+          if(!p)return {ok:false,reason:'PRINTER_DIALOG_MISSING'};
+          return click(printerOption());
+        }
+        if(action==='PRINTER_CONFIRM'){
+          if(!p)return {ok:false,reason:'PRINTER_DIALOG_MISSING'};
+          const selector=printerSelector(p);
+          if(!selector||!clean(selector.innerText||selector.value||'').includes('21-1129-D29'))
+            return {ok:false,reason:'PRINTER_SELECTION_NOT_CONFIRMED'};
+          return click(buttons(p).filter(e=>name(e)==='Xác nhận'));
+        }
+        if(action==='PRINTER_CLOSE'){
+          if(!p)return {ok:false,reason:'PRINTER_DIALOG_MISSING'};
+          const selector=printerSelector(p);
+          const selected=clean(selector?.innerText||selector?.value||'');
+          if(!selector||selected===''||selected==='Chọn'||selected==='-- Chọn --')
+            return {ok:false,reason:'PRINTER_NOT_SELECTED'};
+          return click(buttons(p).filter(e=>name(e)==='Đóng'));
+        }
+        return {ok:false,reason:'UNKNOWN_SETUP_ACTION'};
+      };
       const peek=()=>{
         if(!allowed())return {ok:false,reason:'WRONG_WMS_ROUTE'};
         const d=dialog();
@@ -116,7 +205,7 @@ internal static class WmsWorkflowJs
           default:return {ok:false,reason:'UNKNOWN_ACTION'};
         }
       };
-      window.__supraPackLeV1={peek,perform};
+      window.__supraPackLeV1={peek,perform,setupPeek,setupPerform};
     })();
     """;
 }

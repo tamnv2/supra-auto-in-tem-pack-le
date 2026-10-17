@@ -32,7 +32,7 @@ assert.doesNotMatch(browser,/(GetCookiesAsync|CookieManager|PasswordVault|localS
 // No in-app self-update, PowerShell installer, or credentials.
 assert.equal(fs.existsSync('UpdateClient.cs'),false);
 assert.doesNotMatch(main,/(CheckAndInstallAsync|_update\.Click|CẬP NHẬT PHẦN MỀM)/);
-assert.match(project,/<Version>1\.4\.0<\/Version>/);
+assert.match(project,/<Version>1\.(?:4|5)\.0<\/Version>/);
 assert.match(project,/<AssemblyName>WmsPackingAssistant<\/AssemblyName>/);
 assert.match(workflow,/publish\/WmsPackingAssistant\.exe/);
 
