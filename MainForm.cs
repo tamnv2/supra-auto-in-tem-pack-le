@@ -50,6 +50,7 @@ public sealed class MainForm : Form
     private bool _changingStartupSetting;
     private bool _setupDone;
     private bool _setupRunning;
+    private Task? _setupTask;
     private bool _printerVerified;
     private bool _resettingBrowser;
     private string _stage="INIT";
@@ -74,7 +75,7 @@ public sealed class MainForm : Form
             else
             {
                 Status("INIT","WMS yêu cầu đăng nhập lại. Chờ thiết lập quầy và máy in.");
-                _=RunInitialSetupAsync();
+                _setupTask=RunInitialSetupAsync();
             }
             _browser.Reveal();
             UpdateControls();
@@ -96,7 +97,7 @@ public sealed class MainForm : Form
             {
                 await _browser.InitializeAsync();
                 Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
-                _=RunInitialSetupAsync();
+                _setupTask=RunInitialSetupAsync();
             }
             catch { Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime."); }
         };
@@ -494,7 +495,7 @@ public sealed class MainForm : Form
         {
             // Stop the in-flight automatic setup before touching the browser profile.
             // No operation or business record is removed.
-            await Task.Delay(1500);
+            if(_setupTask!=null)await _setupTask;
             await _browser.ClearBrowsingDataAsync();
             _browser.Reveal();
             Status("INIT","Đã xóa dữ liệu trình duyệt. Hãy đăng nhập WMS để thiết lập lại.");
@@ -515,7 +516,7 @@ public sealed class MainForm : Form
             if(!IsDisposed)
             {
                 UpdateControls();
-                if(_browser.Ready&&!_setupDone)_=RunInitialSetupAsync();
+                if(_browser.Ready&&!_setupDone)_setupTask=RunInitialSetupAsync();
             }
         }
     }
