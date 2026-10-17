@@ -33,3 +33,12 @@ Chỉ dùng khi được doanh nghiệp cho phép. Không giả mạo trình duy
 - Các tab tăng kích thước và nổi bật trạng thái chọn. Form nhập Tote/số kiện và nút bấm được mở rộng; một nút Thêm nhân sự chấp nhận `A,B,C` hoặc `A, B, C`; hộp chọn mặc định tên đầu tiên.
 - Lịch sử hiển thị **Thời gian xử lí**, **Số SKU**, **Số kiện**, **Pcs**, **Điểm**; kết quả Excel đồng nhất. Trường mới nullable nên dữ liệu cũ không biến thành 0. Số kiện phiên bản này ghi từ số nhân viên nhập trên phần mềm (chưa xác minh độc lập từ WMS). Số SKU/Pcs/Điểm đợi thống nhất cách đọc WMS.
 - Tab **Sản lượng hôm nay** tổng hợp số DO duy nhất hoàn tất, lượt thành công/chưa hoàn tất, tổng thời gian xử lý, trung vị thời gian và số điểm **nếu có** theo người từ lịch sử local. Không coi thời gian xử lý là thời gian ca, không xếp hạng năng suất khi thiếu điểm.
+
+## v1.5.1 — Bố cục dễ đọc và khôi phục trình duyệt (17/10/2026)
+
+- Mở ứng dụng chọn sẵn tab Trình duyệt WMS ngay từ lần hiển thị đầu tiên; các tab còn lại vẫn truy cập bình thường.
+- Vẽ tab chỉ một dòng: Sản lượng / Thông tin là nhãn rút gọn trên thanh tab, trang đầy đủ vẫn mang tên Sản lượng hôm nay / Thông tin phần mềm.
+- Tab Sản lượng: thay bản tóm tắt đa dòng dễ cắt chữ bằng tám thẻ thông tin, lưới và ô hướng dẫn cuộn; gọi chỉ số median là "Thời gian ở giữa". Công thức thống kê không đổi: giá trị đứng giữa khi sắp xếp lượt, nếu chẵn lấy trung bình hai giá trị giữa. Không chuyển thành số trung bình cộng của cả ngày.
+- Tab Thông tin: sáu khung nội dung rõ ràng có thanh cuộn riêng; vị trí điều khiển quản lý tài khoản Windows và xóa trình duyệt ở phía trên, không ẩn cuối trang.
+- Nút XÓA DỮ LIỆU TRÌNH DUYỆT chỉ khả dụng khi không có lượt Tote đang chạy; cần hộp thoại xác nhận nêu rõ mật khẩu, cookie, dữ liệu trang sẽ bị xóa. Gọi API WebView2 profile ClearBrowsingDataAsync() (không đọc mật khẩu/cookie/token) rồi mở lại WMS; phải đăng nhập, xác nhận quầy và máy in lần nữa. Nếu thất bại thông báo rõ, không coi như đã xóa. Không được xóa LocalStore/history.jsonl, people.json hoặc logs.
+- Không thêm quyền admin, không làm thay đổi bản ghi lịch sử hay quy trình in nhãn. Windows CI + kiểm thử thủ công ở máy công ty mới xác nhận giao diện / việc xóa profile thực tế.
