@@ -231,7 +231,26 @@ public sealed class MainForm : Form
         root.Controls.Add(_history,0,4);
         _operationTab.Controls.Add(root);
         _operationTab.Controls.Add(title);
-        _webTab.Controls.Add(_browser);
+                // This control is visible while the browser is selected, unlike the
+        // Nghiệp vụ action button. The 44 px bar is outside WebView2, not an overlay.
+        var browserLayout=new TableLayoutPanel{Dock=DockStyle.Fill,RowCount=2,
+            ColumnCount=1,Margin=Padding.Empty,Padding=Padding.Empty};
+        browserLayout.RowStyles.Add(new RowStyle(SizeType.Absolute,48));
+        browserLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var browserHeader=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,
+            BackColor=Color.FromArgb(231,237,245),Padding=new Padding(5)};
+        browserHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+        browserHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,225));
+        browserHeader.Controls.Add(new Label{Dock=DockStyle.Fill,
+            Text="WMS | ĐĂNG NHẬP · KIỂM TRA QUẦY / MÁY IN",TextAlign=ContentAlignment.MiddleLeft,
+            ForeColor=_navy,Font=new Font("Segoe UI",10,FontStyle.Bold)},0,0);
+        var hideFromWeb=MakeButton("ẨN TRÌNH DUYỆT",205);
+        hideFromWeb.Dock=DockStyle.Fill;hideFromWeb.Margin=new Padding(2);
+        hideFromWeb.Click+=(_,_)=>HideBrowser();
+        browserHeader.Controls.Add(hideFromWeb,1,0);
+        browserLayout.Controls.Add(browserHeader,0,0);
+        browserLayout.Controls.Add(_browser,0,1);
+        _webTab.Controls.Add(browserLayout);
         _productionTab.Controls.Add(BuildProductionTab());
         _aboutTab.Controls.Add(BuildAboutTab());
         _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab]);
