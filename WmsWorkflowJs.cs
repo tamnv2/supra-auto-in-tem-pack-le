@@ -69,7 +69,22 @@ internal static class WmsWorkflowJs
       const TARGET_PRINTER='21-1129-D29 (Online)';
       const setupDialog=caption=>dialogs().filter(d=>
         clean(d.innerText).toLocaleUpperCase('vi').includes(caption));
-      const boothDialog=()=>unique(setupDialog('NHẬP MÃ QUẦY ĐÓNG GÓI'));
+      const boothDialog=()=>{
+        // Two observed WMS entry modes: Angular presents the station modal
+        // immediately after route load, or only after Enter in the blank Tote field.
+        // Prefer its specific component; tolerate a differently structured dialog
+        // as long as exactly one visible, caption-matched dialog exists.
+        const fromDialogs=setupDialog('NHẬP MÃ QUẦY ĐÓNG GÓI');
+        if(fromDialogs.length===1)return fromDialogs[0];
+        if(fromDialogs.length>1)return null;
+        const components=Array.from(document.querySelectorAll('app-station-modal')).filter(visible);
+        if(components.length!==1)return null;
+        const root=components[0].closest('mat-dialog-container,[role="dialog"]')||components[0];
+        return visible(root)?root:null;
+      };
+      const boothInput=d=>d?unique(Array.from(d.querySelectorAll('input:not([type="password"])'))
+        .filter(enabled)):null;
+      const boothConfirm=d=>d?unique(buttons(d).filter(e=>name(e)==='Xác nhận')):null;
       const printerDialog=()=>unique(setupDialog('CHỌN MÁY IN'));
       const stationHeader=()=>{
         // WMS displays "QUẦY ĐÓNG GÓI" when station is absent and
@@ -100,11 +115,14 @@ internal static class WmsWorkflowJs
       const setupPeek=()=>{
         if(!allowed())return {ok:false,reason:'WRONG_WMS_ROUTE'};
         const b=boothDialog(),p=printerDialog(),field=printerField(p);
+        const boothField=boothInput(b),boothSubmit=boothConfirm(b);
         const current=printerValue(field);
         const header=stationHeader();
         const ready=input('Quét mã PTVC để đóng gói').length===1 && dialogs().length===0;
         return {
           ok:true,reason:'OK',boothDialog:!!b,printerDialog:!!p,
+          boothInputReady:!!boothField,boothValueCorrect:!!boothField&&boothField.value===TARGET_STATION,
+          boothConfirmEnabled:!!boothSubmit,
           boothHeaderKnown:!!header,boothCorrect:stationCorrect(),
           packingReady:ready,accountTriggerCount:accountTriggers().length,
           settingsVisible:printerMenuItem().length===1,
@@ -128,16 +146,25 @@ internal static class WmsWorkflowJs
         }
         if(action==='BOOTH_SET'){
           if(!b)return {ok:false,reason:'BOOTH_DIALOG_MISSING'};
-          const fields=Array.from(b.querySelectorAll('input:not([type="password"])')).filter(enabled);
-          const el=unique(fields);if(!el)return {ok:false,reason:'BOOTH_INPUT_NOT_UNIQUE'};
+          const el=boothInput(b);if(!el)return {ok:false,reason:'BOOTH_INPUT_NOT_UNIQUE'};
           return setField(el,TARGET_STATION);
+        }
+        if(action==='BOOTH_FOCUS'){
+          if(!b)return {ok:false,reason:'BOOTH_DIALOG_MISSING'};
+          const el=boothInput(b);
+          if(!el||el.value!==TARGET_STATION)return {ok:false,reason:'BOOTH_VALUE_NOT_CONFIRMED'};
+          el.focus();
+          return document.activeElement===el?{ok:true}:{ok:false,reason:'BOOTH_FOCUS_FAILED'};
         }
         if(action==='BOOTH_CONFIRM'){
           if(!b)return {ok:false,reason:'BOOTH_DIALOG_MISSING'};
-          const fields=Array.from(b.querySelectorAll('input:not([type="password"])')).filter(enabled);
-          if(fields.length!==1||fields[0].value!==TARGET_STATION)
+          const el=boothInput(b);
+          if(!el||el.value!==TARGET_STATION)
             return {ok:false,reason:'BOOTH_VALUE_NOT_CONFIRMED'};
-          return click(buttons(b).filter(e=>name(e)==='Xác nhận'));
+          const confirm=boothConfirm(b);
+          if(!confirm)return {ok:false,reason:'BOOTH_CONFIRM_NOT_ENABLED'};
+          confirm.click();
+          return {ok:true};
         }
         if(action==='ACCOUNT_OPEN'){
           if(dialogs().length || !stationCorrect())return {ok:false,reason:'STATION_NOT_READY'};

@@ -57,3 +57,14 @@ Chỉ dùng khi được doanh nghiệp cho phép. Không giả mạo trình duy
 - Nếu không nhận diện chắc chắn hộp thoại, mã quầy, máy in hoặc thời gian chờ quá hạn, ngừng tự động; mở WMS và yêu cầu người dùng chỉnh thủ công, sau đó dùng **XÁC NHẬN WMS SẴN SÀNG** khi đúng ô quét Tote, quầy và máy in. Không in nhãn/click lặp khi trạng thái không chắc chắn.
 - Lưu chiều rộng các cột **Lịch sử nghiệp vụ** và **Sản lượng** theo tài khoản Windows ở `%LOCALAPPDATA%\SupraAutoPackLe\grid-widths.json`; giữ kích thước sau khởi động, không thay đổi file lịch sử.
 - Giữ một WebView2 của phần mềm chính, profile đăng nhập cũ, dữ liệu lịch sử/nhân sự và 4 khu chức năng. Không tự cập nhật qua Internet. Kiểm tra nguồn bằng Windows CI; test WMS/máy in thực tế do người dùng thực hiện khi nhận EXE.
+
+
+## v1.6.1 — sửa nhập quầy ngay sau khi mở WMS (17/10/2026)
+
+- **Hai tình huống**: (1) WMS tự hiển thị hộp `NHẬP MÃ QUẦY ĐÓNG GÓI` khi load; (2) màn hình chỉ hiển thị `QUẦY ĐÓNG GÓI` thì focus ô Tote trống và Enter để mở hộp. **Nếu hộp đã mở, tuyệt đối không Enter trên Tote lần nữa.**
+- Nhận diện hộp theo tiêu đề thực tế hoặc thành phần `app-station-modal` của Angular, không dựa vào số ID `mat-input-N`. Đợi ô nhập xuất hiện, điền `SDG.22`, để Angular xác nhận form; ưu tiên nút Xác nhận nếu được bật, nếu nút chưa bật thì sử dụng Enter thật tại ô mã quầy (hành vi đã được ghi trong Recorder V5).
+- Sau gửi, chỉ xác nhận thành công khi WMS đóng hộp và hiển thị `QUẦY ĐÓNG GÓI [SDG.22]`. Giới hạn lần thử; không nhập lại hoặc click mù khi chưa rõ kết quả; dừng tự động và mở WMS cho người dùng xử lý tay.
+- Bổ sung log kỹ thuật `BOOTH_MODAL_DETECTED`, `BOOTH_SUBMIT_BUTTON` / `BOOTH_SUBMIT_ENTER`, `BOOTH_READBACK_NOT_SDG22`. Không ghi giá trị trường nhạy cảm.
+- Giữ các thay đổi v1.6.0: kiểm tra máy in D29, chuyển về Nghiệp vụ khi cả hai sẵn sàng, ẩn/hiện tab Trình duyệt, lưu chiều rộng cột và dữ liệu local.
+
+**Bản này cần người sử dụng kiểm tra thực tế trên mạng công ty.** Bài kiểm tra mô phỏng DOM và Windows CI không thay thế bằng chứng WMS đã chấp nhận mã quầy và máy in vật lý.

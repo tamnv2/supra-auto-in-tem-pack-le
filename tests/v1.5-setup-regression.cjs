@@ -40,6 +40,7 @@ const printerOption=el('21-1129-D29 (Online)',()=>{
 printerInput.click=()=>{clicks.expand++;optionsShown=true;};
 const booth={
  innerText:'NHẬP MÃ QUẦY ĐÓNG GÓI',parentElement:null,getClientRects:()=>[1],
+ closest:()=>null,
  querySelectorAll:sel=>sel.includes('input')?[boothInput]:sel.includes('button')?[boothConfirm]:[]
 };
 const printer={
@@ -51,6 +52,7 @@ const account=el('',()=>{clicks.account++;accountOpened=true;});
 const menu=el('printer Thiết lập máy in',()=>{clicks.menu++;modal='printer';accountOpened=false;},true);
 document.querySelectorAll=sel=>{
  if(sel.includes('mat-dialog-container'))return modal==='booth'?[booth]:modal==='printer'?[printer]:[];
+ if(sel==='app-station-modal')return modal==='booth-component'?[booth]:[];
  if(sel.startsWith('mat-toolbar#app-header'))return [account];
  if(sel.includes('mat-option'))return optionsShown?[printerOption]:[];
  if(sel.includes('button,[role="button"],a'))return accountOpened?[menu]:[];
@@ -71,9 +73,19 @@ assert.equal(api.setupPerform('BOOTH_PREPARE').ok,true);
 assert.equal(document.activeElement,tote);
 modal='booth'; // WebView2.EnterAsync triggers dialog on the real WMS.
 assert.equal(api.setupPeek().boothDialog,true);
+assert.equal(api.setupPeek().boothInputReady,true);
+assert.equal(api.setupPeek().boothValueCorrect,false);
+boothConfirm.disabled=true;
+assert.equal(api.setupPeek().boothConfirmEnabled,false,
+  'Disabled confirmation should permit the recorded Enter fallback');
 assert.equal(api.setupPerform('BOOTH_CONFIRM').ok,false,'Must never confirm empty booth');
 assert.equal(api.setupPerform('BOOTH_SET').ok,true);
 assert.equal(boothInput.value,'SDG.22');
+assert.equal(api.setupPeek().boothValueCorrect,true);
+assert.equal(api.setupPerform('BOOTH_FOCUS').ok,true);
+assert.equal(document.activeElement,boothInput);
+boothConfirm.disabled=false;
+assert.equal(api.setupPeek().boothConfirmEnabled,true);
 assert.equal(api.setupPerform('BOOTH_CONFIRM').ok,true);
 assert.equal(api.setupPeek().boothCorrect,true);
 assert.equal(clicks.booth,1);
@@ -105,6 +117,27 @@ assert.match(main,/HideBrowser\(\);\s*FocusToteIfIdle\(\);/);
 assert.match(main,/private void ShowBrowser\(\)/);
 assert.match(main,/private void HideBrowser\(\)/);
 assert.match(main,/SaveColumnWidths\(\)/);
+assert.match(main,/BOOTH_MODAL_DETECTED/);
+assert.match(main,/BOOTH_SUBMIT_ENTER/);
+assert.match(main,/if\(!p\.boothCorrect\)/);
+assert.match(main,/BOOTH_READBACK_NOT_SDG22/);
+assert.match(main,/await _browser\.EnterAsync\(\)/);
 assert.doesNotMatch(src,/SDG\.24/);
 assert.doesNotMatch(src,/(document\.cookie|localStorage|getCookies|authorization:)/i);
-console.log('WMS_SETUP_SD22_D29_MANUAL_FALLBACK_PASS');
+// Regression: station prompt is already visible on initial packing page load;
+ // the caller must detect it without requiring Enter in the Tote field.
+ctx.location.pathname='/sft3/app/saleorder/packing';
+document.body.innerText='QUẦY ĐÓNG GÓI\nTIẾP THEO';
+boothInput.value='';
+modal='booth';
+assert.equal(api.setupPeek().boothDialog,true);
+assert.equal(api.setupPeek().boothInputReady,true);
+assert.equal(api.setupPerform('BOOTH_SET').ok,true);
+assert.equal(api.setupPeek().boothValueCorrect,true);
+// With an Enter-only station confirmation, the native control must remain focused.
+assert.equal(api.setupPerform('BOOTH_FOCUS').ok,true);
+assert.equal(document.activeElement,boothInput);
+modal='booth-component';
+assert.equal(api.setupPeek().boothDialog,true,
+  'Detect unique station component when WMS modal structure changes');
+console.log('WMS_SETUP_SD22_D29_TWO_STATION_ENTRY_MODES_PASS');

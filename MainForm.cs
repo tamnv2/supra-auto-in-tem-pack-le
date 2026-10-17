@@ -576,6 +576,9 @@ public sealed class MainForm : Form
         _setupRunning=true;
         var accountOpenAttempts=0;
         var boothOpenAttempts=0;
+        var boothSubmissionAttempts=0;
+        var boothInputWaits=0;
+        var stationReadbackWaits=0;
         var printerExpandAttempts=0;
         var readyWaits=0;
         bool printerSelectionNeedsRecheck=false;
@@ -619,14 +622,62 @@ public sealed class MainForm : Form
 
                 if(p.boothDialog)
                 {
+                    // Case 1: the station modal appeared on its own at page load.
+                    // Case 2: it opened after Enter on the blank Tote field.
+                    // Either way, never send another Tote Enter while this modal exists.
+                    _store.Trace("SETUP","BOOTH_MODAL_DETECTED","DONE",0,
+                        p.boothInputReady?"INPUT_READY":"INPUT_MISSING");
+                    if(boothSubmissionAttempts>0)
+                    {
+                        if(++stationReadbackWaits>=3){Manual("BOOTH_MODAL_NOT_DISMISSED");break;}
+                        continue; // WMS may be validating an earlier submission.
+                    }
+                    if(!p.boothInputReady)
+                    {
+                        if(++boothInputWaits>=5){Manual("BOOTH_INPUT_NOT_READY");break;}
+                        continue; // Angular may create the dialog shell before the input.
+                    }
+                    boothSubmissionAttempts++;
                     if(!await Step("BOOTH_SET"))break;
-                    if(!await Step("BOOTH_CONFIRM"))break;
-                    _store.Trace("SETUP","BOOTH_SUBMITTED","DONE");
-                    continue; // Must read back "QUẦY ĐÓNG GÓI [SDG.22]".
+                    // Give Angular form validation time to enable its confirm action.
+                    await Task.Delay(350);
+                    var filled=await _browser.SetupPeekAsync();
+                    if(!_setupRunning||_resettingBrowser)break;
+                    if(filled?.boothCorrect==true&&!filled.boothDialog)continue;
+                    if(filled?.boothDialog!=true||!filled.boothValueCorrect)
+                    {
+                        Manual("BOOTH_FILL_NOT_CONFIRMED");break;
+                    }
+                    if(filled.boothConfirmEnabled)
+                    {
+                        if(!await Step("BOOTH_CONFIRM"))break;
+                        _store.Trace("SETUP","BOOTH_SUBMIT_BUTTON","DONE");
+                    }
+                    else
+                    {
+                        // Recorded WMS also accepts a real Enter in the station input.
+                        if(!await Step("BOOTH_FOCUS"))break;
+                        try
+                        {
+                            await _browser.EnterAsync();
+                            _store.Trace("SETUP","BOOTH_SUBMIT_ENTER","DONE");
+                        }
+                        catch {Manual("BOOTH_SUBMIT_ENTER_FAILED");break;}
+                    }
+                    // Do not assume a successful click/Enter means the station was set.
+                    await Task.Delay(550);
+                    continue; // Require the rendered [SDG.22] header on next peek.
                 }
 
                 if(!p.boothCorrect)
                 {
+                    // After sending the station code, wait briefly for readback.
+                    // Never reopen/resubmit automatically if its result is unknown.
+                    if(boothSubmissionAttempts>0)
+                    {
+                        if(++stationReadbackWaits>=4){Manual("BOOTH_READBACK_NOT_SDG22");break;}
+                        continue;
+                    }
                     if(!p.boothHeaderKnown)
                     {
                         if(++readyWaits>8){Manual("BOOTH_HEADER_UNKNOWN");break;}
