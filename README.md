@@ -68,3 +68,17 @@ Chỉ dùng khi được doanh nghiệp cho phép. Không giả mạo trình duy
 - Giữ các thay đổi v1.6.0: kiểm tra máy in D29, chuyển về Nghiệp vụ khi cả hai sẵn sàng, ẩn/hiện tab Trình duyệt, lưu chiều rộng cột và dữ liệu local.
 
 **Bản này cần người sử dụng kiểm tra thực tế trên mạng công ty.** Bài kiểm tra mô phỏng DOM và Windows CI không thay thế bằng chứng WMS đã chấp nhận mã quầy và máy in vật lý.
+
+
+## v1.7.0 — Đăng nhập lại khi mở, giữ mật khẩu đã lưu; bộ ghi thao tác WMS
+
+**Phiên WMS:** Mỗi khi khởi động ứng dụng, WebView2 tiếp tục dùng hồ sơ Windows cũ (không dùng InPrivate), vẫn bật \`IsPasswordAutosaveEnabled\`, nhưng gọi \`CoreWebView2Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.AllSite)\` **trước khi điều hướng tới WMS**. Việc xóa gồm cookie và storage của các trang trong profile riêng của ứng dụng, nhưng KHÔNG chọn xóa PasswordAutosave, GeneralAutofill hay Settings. Nếu không xóa được, không tự điều hướng WMS để tránh dùng lại phiên cũ. Đăng nhập SSO doanh nghiệp vẫn có thể tự xác thực lại bằng phiên ngoài WebView2; đây không phải thao tác thu hồi phiên máy chủ. Lưu ý nút "Xóa dữ liệu trình duyệt" trong tab Thông tin là thao tác khác: nút này vẫn xóa mọi dữ liệu, bao gồm mật khẩu lưu, sau khi người dùng xác nhận.
+
+**Bộ ghi thao tác** nằm trực tiếp tại thanh công cụ tab Trình duyệt, bên trái nút "ẨN TRÌNH DUYỆT":
+- **BẮT ĐẦU GHI**: chỉ khi đang ở WMS đã đăng nhập (\`wms-supra.winmart.vn/sft3/app/\`). Không ghi trang đăng nhập/auth.
+- Ghi click chuột, pointerdown, focus, Enter/Tab/Escape/Arrow, thay đổi thành phần UI, selector, label button, đoạn text UI phù hợp, mã quầy kiểu SDG.xx và mã máy in kiểu 21-xxxx-xxx (Online/Offline). Không đọc/ghi mật khẩu, token, cookie, giá trị Tote, SO/DO từ ô nhập, request/response hoặc ảnh màn hình. Xử lý lọc dữ liệu nhạy cảm hai lớp (JavaScript + C#); danh sách nút/bản ghi có thể chứa chữ nghiệp vụ khác, cần xem lại ZIP trước khi chia sẻ.
+- **KẾT THÚC & XUẤT LOG**: tự xuất ZIP \`SUPRA_WMS_Actions_yyyyMMdd_HHmmss_fff.zip\` vào Desktop. ZIP gồm \`events.jsonl\` và \`session.json\`. File nháp được ghi dần xuống \`%LOCALAPPDATA%\SupraAutoPackLe\recordings\pending_*.jsonl\`; nếu xuất gặp lỗi có thể khôi phục file này.
+- Giới hạn 15.000 sự kiện/phiên. Không tự gửi log lên Internet. Nếu đang ghi, ứng dụng cảnh báo và không đóng cho đến khi người dùng kết thúc để tránh mất log.
+- Tab và WebView2 của ứng dụng chính vẫn hoạt động, không chèn UI vào trang WMS. Cả logic SDG.22 và kiểm tra máy in D29, Ẩn/Hiện, lịch sử, xuất Excel và cấu hình cột của v1.6.1 đều giữ nguyên.
+
+**Đánh giá test:** Có JS syntax, mô phỏng DOM và Windows CI. Chưa kết luận PASS đăng nhập Supra thực tế, vì cơ chế SSO/điều hướng WMS và chính sách mật khẩu do doanh nghiệp quản lý.
