@@ -5,6 +5,9 @@ const main=fs.readFileSync('MainForm.cs','utf8');
 const browser=fs.readFileSync('WmsBrowser.cs','utf8');
 const project=fs.readFileSync('SupraAutoPackLe.csproj','utf8');
 // Prevent tab captions from wrapping, regardless of Windows font scaling.
+assert.match(main,/new TableLayoutPanel\{Dock=DockStyle.Fill,ColumnCount=4,RowCount=1/);
+assert.match(main,/actions\.Controls\.Add\(actionButtons\[i\],i,0\)/);
+assert.match(main,/exports\.Controls\.Add\(_exportXlsx,0,0\)/);
 assert.match(main,/TextFormatFlags\.SingleLine/);
 assert.match(main,/TextFormatFlags\.EndEllipsis/);
 assert.match(main,/2=>"SẢN LƯỢNG"/);
