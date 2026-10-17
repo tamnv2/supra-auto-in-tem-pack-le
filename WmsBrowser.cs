@@ -52,6 +52,7 @@ internal sealed class WmsBrowser : UserControl
     private readonly Action _openBrowserTab;
     private bool _startupRouting=true;
     private int _startupRedirects;
+    public event Action? LoginRequired;
     public bool Ready {get;private set;}
     public WmsBrowser(LocalStore storage,Action openBrowserTab)
     {
@@ -102,7 +103,13 @@ internal sealed class WmsBrowser : UserControl
             {
                 _storage.Trace("WEB",e.IsSuccess?"NAVIGATION_DONE":"NAVIGATION_ERROR",
                     e.IsSuccess?"OK":"ERROR");
-                if(e.IsSuccess)TryNavigatePackingAfterLogin();
+                if(!e.IsSuccess)return;
+                if(Uri.TryCreate(core.Source,UriKind.Absolute,out var destination) &&
+                   (destination.Host.Equals("auth-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) ||
+                    (destination.Host.Equals("wms-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) &&
+                     destination.AbsolutePath.Contains("/login",StringComparison.OrdinalIgnoreCase))))
+                    LoginRequired?.Invoke();
+                TryNavigatePackingAfterLogin();
             };
             core.ProcessFailed+=(_,_)=>{Ready=false;_storage.Trace("WEB","PROCESS_FAILED","ERROR");};
             core.NewWindowRequested+=(_,e)=>{
@@ -143,6 +150,11 @@ internal sealed class WmsBrowser : UserControl
         core.Navigate(Target);
     }
     public void StopStartupRouting()=>_startupRouting=false;
+    public void BeginStartupRouting()
+    {
+        _startupRouting=true;
+        _startupRedirects=0;
+    }
     public async Task<BrowserSetupPeek?> SetupPeekAsync()
     {
         if(!Ready||_view.CoreWebView2==null)return null;
