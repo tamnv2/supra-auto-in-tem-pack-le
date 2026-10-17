@@ -41,6 +41,9 @@ public sealed class MainForm : Form
     private bool _busy;
     private bool _needsRecovery;
     private bool _changingStartupSetting;
+    private bool _setupDone;
+    private bool _setupRunning;
+    private bool _printerVerified;
     private string _stage="INIT";
     private static readonly Regex ToteFormat=new("^[A-Za-z0-9_-]{2,64}$",RegexOptions.Compiled);
     private static readonly Regex CodeFormat=new("^[A-Za-z0-9_-]{5,50}$",RegexOptions.Compiled);
@@ -65,7 +68,8 @@ public sealed class MainForm : Form
             try
             {
                 await _browser.InitializeAsync();
-                Status("READY","Đăng nhập WMS và chọn máy in tại tab Trình duyệt, sau đó chọn Nghiệp vụ.");
+                Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
+                _=RunInitialSetupAsync();
             }
             catch { Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime."); }
         };
@@ -73,6 +77,7 @@ public sealed class MainForm : Form
             _midnightCheck.Stop();
             _midnightCheck.Dispose();
             _cancel?.Cancel();
+            _setupRunning=false;
             _store.Trace("APP","CLOSING",_busy?"UNCERTAIN":"OK",_watch.ElapsedMilliseconds);
             _browser.Terminate();
         };
@@ -196,8 +201,18 @@ public sealed class MainForm : Form
         };
         _recover.Click+=async (_,_)=>{
             var p=await _browser.PeekAsync();
-            if(p?.ready==true){_needsRecovery=false;Status("READY","Đã xác nhận WMS về ô Tote.");
-                UpdateControls();FocusToteIfIdle();}
+            if(p?.ready==true)
+            {
+                if(!_printerVerified &&
+                    MessageBox.Show(this,
+                    "Đã chọn đúng quầy SDG.24 và xác nhận máy in đang hoạt động trên WMS? "+
+                    "Chỉ xác nhận nếu đã kiểm tra bằng tay.",
+                    "Xác nhận thiết lập WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+                _setupDone=true;_needsRecovery=false;_setupRunning=false;
+                _browser.StopStartupRouting();
+                Status("READY","Đã xác nhận màn hình quét Tote và máy in sẵn sàng.");
+                UpdateControls();FocusToteIfIdle();
+            }
             else{_browser.Reveal();MessageBox.Show("WMS chưa trở về màn hình quét Tote. Hãy hoàn tất bằng tay.");}
         };
         _exportXlsx.Click+=(_,_)=>ExportXlsx();
@@ -333,11 +348,111 @@ public sealed class MainForm : Form
         panel.Controls.Add(footer,0,2);
         return panel;
     }
+
+    private async Task RunInitialSetupAsync()
+    {
+        if(_setupRunning||_setupDone||IsDisposed)return;
+        _setupRunning=true;
+        var accountOpenAttempts=0;
+        try
+        {
+            // Never change account, credentials, WMS service data or printer settings
+            // outside the specifically identified setup UI. Unknown UI => manual check.
+            while(_setupRunning&&!_setupDone&&!IsDisposed)
+            {
+                await Task.Delay(1350);
+                if(!_setupRunning||IsDisposed)break;
+                _browser.TryNavigatePackingAfterLogin();
+                var p=await _browser.SetupPeekAsync();
+                if(p?.ok!=true)continue; // Waiting for manual WMS login or navigation.
+                async Task<bool> Step(string code)
+                {
+                    var a=await _browser.SetupActionAsync(code);
+                    var safe=Regex.IsMatch(a.reason??"","^[A-Z0-9_]{1,60}$")?a.reason:"UNSPECIFIED";
+                    _store.Trace("SETUP","ACTION_"+code,a.ok?"DONE":"BLOCKED",0,a.ok?"":safe);
+                    if(a.ok)return true;
+                    Status("FAULT","Không xác minh được bước thiết lập "+code+". Chọn tab WMS để làm bằng tay, sau đó bấm Xác nhận sẵn sàng.");
+                    _browser.Reveal();
+                    _setupRunning=false;
+                    return false;
+                }
+                if(p.boothDialog)
+                {
+                    if(!await Step("BOOTH_SET"))break;
+                    if(!await Step("BOOTH_CONFIRM"))break;
+                    accountOpenAttempts=0;
+                    continue;
+                }
+                if(p.printerDialog)
+                {
+                    if(p.printerSelected)
+                    {
+                        if(!await Step("PRINTER_CLOSE"))break;
+                        _printerVerified=true;
+                        continue;
+                    }
+                    if(p.printerOptionVisible)
+                    {
+                        if(!await Step("PRINTER_PICK"))break;
+                        await Task.Delay(350);
+                        if(!await Step("PRINTER_CONFIRM"))break;
+                        _printerVerified=true;
+                        continue;
+                    }
+                    if(p.printerEmpty)
+                    {
+                        if(!await Step("PRINTER_EXPAND"))break;
+                        continue;
+                    }
+                    Status("FAULT","Không nhận diện được máy in đã chọn. Vui lòng kiểm tra trong tab WMS.");
+                    _browser.Reveal();break;
+                }
+                if(p.settingsVisible)
+                {
+                    if(!await Step("PRINTER_MENU"))break;
+                    continue;
+                }
+                if(!p.packingReady)continue;
+                if(_printerVerified)
+                {
+                    _setupDone=true;
+                    _browser.StopStartupRouting();
+                    Status("READY","Quầy SDG.24 và máy in WMS đã được xác nhận. Sẵn sàng quét Tote.");
+                    UpdateControls();FocusToteIfIdle();
+                    break;
+                }
+                if(p.accountTriggerCount!=1 || accountOpenAttempts>=3)
+                {
+                    Status("FAULT","Cần mở tài khoản → Thiết lập máy in và kiểm tra máy in bằng tay. "+
+                        "Sau khi hoàn tất, bấm Xác nhận WMS sẵn sàng.");
+                    _browser.Reveal();break;
+                }
+                accountOpenAttempts++;
+                if(!await Step("ACCOUNT_OPEN"))break;
+            }
+        }
+        catch
+        {
+            if(!IsDisposed)
+            {
+                _store.Trace("SETUP","STARTUP_EXCEPTION","ERROR");
+                Status("FAULT","Không tự xác minh được thiết lập WMS. Kiểm tra thủ công trong tab Trình duyệt.");
+                _browser.Reveal();
+            }
+        }
+        finally
+        {
+            _setupRunning=false;
+            if(!IsDisposed)UpdateControls();
+        }
+    }
+
     private void UpdateControls()
     {
-        var allow=!_busy&&!_needsRecovery;
+        var allow=!_busy&&!_needsRecovery&&_setupDone;
         _ok.Enabled=allow;_tote.Enabled=allow;_qty.Enabled=allow;
-        _peopleButton.Enabled=!_busy;_recover.Enabled=!_busy&&_needsRecovery;
+        _peopleButton.Enabled=!_busy;
+        _recover.Enabled=!_busy&&(_needsRecovery||!_setupDone);
     }
     private void Status(string stage,string message)
     {
@@ -424,7 +539,7 @@ public sealed class MainForm : Form
     }
     private async Task OnSubmitAsync()
     {
-        if(_busy||_needsRecovery)return;
+        if(_busy||_needsRecovery||!_setupDone)return;
         var tote=_tote.Text.Trim().ToUpperInvariant();
         if(!ToteFormat.IsMatch(tote)){MessageBox.Show("Mã Tote không hợp lệ.");return;}
         if(!int.TryParse(_qty.Text.Trim(),out var count)||count<1||count>9999)
@@ -444,7 +559,7 @@ public sealed class MainForm : Form
         HistoryRow Snapshot(string phase,string result) => new HistoryRow(
             LocalStore.FormatHistoryDate(started),started.ToString("HH:mm:ss"),
             DateTime.Now.ToString("HH:mm:ss"),(long)Math.Round(_watch.Elapsed.TotalSeconds),
-            person,so,doCode,result){AttemptId=attemptId,Phase=phase};
+            person,so,doCode,result){AttemptId=attemptId,Phase=phase,ParcelCount=count};
         void Checkpoint(string phase)
         {
             if(!_store.TryAppendHistory(Snapshot(phase,"IN_PROGRESS"),phase))
