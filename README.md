@@ -48,3 +48,12 @@ Chỉ dùng khi được doanh nghiệp cho phép. Không giả mạo trình duy
 - Tab Thông tin: sáu khung nội dung rõ ràng có thanh cuộn riêng; vị trí điều khiển quản lý tài khoản Windows và xóa trình duyệt ở phía trên, không ẩn cuối trang.
 - Nút XÓA DỮ LIỆU TRÌNH DUYỆT chỉ khả dụng khi không có lượt Tote đang chạy; cần hộp thoại xác nhận nêu rõ mật khẩu, cookie, dữ liệu trang sẽ bị xóa. Gọi API WebView2 profile ClearBrowsingDataAsync() (không đọc mật khẩu/cookie/token) rồi mở lại WMS; phải đăng nhập, xác nhận quầy và máy in lần nữa. Nếu thất bại thông báo rõ, không coi như đã xóa. Không được xóa LocalStore/history.jsonl, people.json hoặc logs.
 - Không thêm quyền admin, không làm thay đổi bản ghi lịch sử hay quy trình in nhãn. Windows CI + kiểm thử thủ công ở máy công ty mới xác nhận giao diện / việc xóa profile thực tế.
+
+## v1.6.0 — tự xác minh quầy SDG.22 và máy in D29, ẩn/hiện trình duyệt
+
+- Sau đăng nhập, kiểm tra mã quầy dựa trên tiêu đề WMS `QUẦY ĐÓNG GÓI [SDG.22]`. Nếu hiển thị `QUẦY ĐÓNG GÓI` chưa có mã hoặc mã khác, chỉ kích hoạt hộp nhập bằng Enter trên ô Tote **đang trống**; điền `SDG.22` và xác minh tiêu đề sau xác nhận. Mỗi lần khởi tạo chỉ thử mở hộp một lần.
+- Kiểm tra máy in thông qua menu tài khoản → **Thiết lập máy in**. Đọc chính xác giá trị ô nhập theo hộp thoại WMS, chọn `21-1129-D29 (Online)` nếu trống hoặc khác, xác nhận; mở lại hộp thoại để kiểm tra đã lưu đúng D29. Không kết luận máy in vật lý đã in thành công chỉ từ chữ Online trên giao diện.
+- Khi kiểm tra đủ cả hai, WMS đã trở lại ô quét Tote, chuyển tab **NGHIỆP VỤ** và tự **ẨN** tab Trình duyệt. Nút của tab Nghiệp vụ là **HIỆN TRÌNH DUYỆT** khi tab ẩn, **ẨN TRÌNH DUYỆT** khi tab được hiển thị. Tab Trình duyệt có nút Ẩn riêng trên thanh nằm ngoài vùng WebView2, tránh che WMS.
+- Nếu không nhận diện chắc chắn hộp thoại, mã quầy, máy in hoặc thời gian chờ quá hạn, ngừng tự động; mở WMS và yêu cầu người dùng chỉnh thủ công, sau đó dùng **XÁC NHẬN WMS SẴN SÀNG** khi đúng ô quét Tote, quầy và máy in. Không in nhãn/click lặp khi trạng thái không chắc chắn.
+- Lưu chiều rộng các cột **Lịch sử nghiệp vụ** và **Sản lượng** theo tài khoản Windows ở `%LOCALAPPDATA%\SupraAutoPackLe\grid-widths.json`; giữ kích thước sau khởi động, không thay đổi file lịch sử.
+- Giữ một WebView2 của phần mềm chính, profile đăng nhập cũ, dữ liệu lịch sử/nhân sự và 4 khu chức năng. Không tự cập nhật qua Internet. Kiểm tra nguồn bằng Windows CI; test WMS/máy in thực tế do người dùng thực hiện khi nhận EXE.

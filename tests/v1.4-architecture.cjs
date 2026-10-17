@@ -14,7 +14,7 @@ const workflow=read('.github/workflows/build-windows.yml');
 assert.match(main,/_operationTab=new\("NGHIỆP VỤ"\)/);
 assert.match(main,/_webTab=new\("TRÌNH DUYỆT WMS"\)/);
 assert.match(main,/_aboutTab=new\("THÔNG TIN PHẦN MỀM"\)/);
-assert.match(main,/_webTab\.Controls\.Add\(_browser\)/);
+assert.match(main,/browserLayout\.Controls\.Add\(_browser,0,1\)/);
 assert.match(main,/_operationTab\.Controls\.Add\(root\)/);
 assert.match(main,/_tabs\.SelectedTab=_webTab/);
 assert.match(main,/_tabs\.SelectedTab=_operationTab/);
@@ -32,7 +32,7 @@ assert.doesNotMatch(browser,/(GetCookiesAsync|CookieManager|PasswordVault|localS
 // No in-app self-update, PowerShell installer, or credentials.
 assert.equal(fs.existsSync('UpdateClient.cs'),false);
 assert.doesNotMatch(main,/(CheckAndInstallAsync|_update\.Click|CẬP NHẬT PHẦN MỀM)/);
-assert.match(project,/<Version>1\.5\.1<\/Version>/);
+assert.match(project,/<Version>1\.6\.0<\/Version>/);
 assert.match(project,/<AssemblyName>WmsPackingAssistant<\/AssemblyName>/);
 assert.match(workflow,/publish\/WmsPackingAssistant\.exe/);
 

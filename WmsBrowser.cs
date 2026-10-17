@@ -29,11 +29,14 @@ internal sealed class BrowserSetupPeek
     public bool ok {get;set;}
     public string reason {get;set;}="";
     public bool boothDialog {get;set;}
+    public bool boothHeaderKnown {get;set;}
+    public bool boothCorrect {get;set;}
     public bool printerDialog {get;set;}
     public bool packingReady {get;set;}
     public int accountTriggerCount {get;set;}
     public bool settingsVisible {get;set;}
-    public bool printerSelected {get;set;}
+    public bool printerCorrect {get;set;}
+    public bool printerWrong {get;set;}
     public bool printerEmpty {get;set;}
     public bool printerOptionVisible {get;set;}
 }
