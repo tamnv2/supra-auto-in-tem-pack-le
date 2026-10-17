@@ -1,0 +1,59 @@
+name: WMS Recorder V5 Windows
+on:
+  push:
+    branches: [feature/wms-recorder-webview2-v5]
+    paths:
+      - "tools/wms-recorder-v5/**"
+      - ".github/workflows/wms-recorder-v5.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Compile self-contained Windows EXE
+        shell: pwsh
+        run: |
+          dotnet publish tools/wms-recorder-v5/SupraWmsRecorder.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o out/recorder
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (!(Test-Path out/recorder/SUPRA_WMS_Recorder_V5.exe)) { throw "EXE not found" }
+          Get-ChildItem out/recorder | Select-Object Name, Length
+      - name: Windows UI and WebView2 trace smoke
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $env:SUPRA_SMOKE_RESULT = Join-Path $env:RUNNER_TEMP "supra_recorder_smoke.txt"
+          $exe = Join-Path $pwd.Path "out\recorder\SUPRA_WMS_Recorder_V5.exe"
+          $p = Start-Process -FilePath $exe -ArgumentList "--smoke" -PassThru
+          try {
+            $p | Wait-Process -Timeout 65 -ErrorAction Stop
+          } catch {
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "Recorder UI process hung or failed to exit within 65s"
+          }
+          if (!(Test-Path $env:SUPRA_SMOKE_RESULT)) { throw "No smoke report from Windows GUI process" }
+          $status = Get-Content $env:SUPRA_SMOKE_RESULT -Raw
+          Write-Host $status
+          if (!$status.StartsWith("PASS")) { throw "WebView2 DOM click capture/export failed" }
+      - name: Package EXE and instructions
+        shell: pwsh
+        run: |
+          Copy-Item tools/wms-recorder-v5/README.md out/recorder/HUONG_DAN.md
+          Get-FileHash out/recorder/SUPRA_WMS_Recorder_V5.exe -Algorithm SHA256 | Format-List | Out-File out/recorder/SHA256.txt
+          Compress-Archive -Path out/recorder/* -DestinationPath out/SUPRA_WMS_Recorder_V5_Windows_x64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SUPRA_WMS_Recorder_V5_Windows_x64
+          path: |
+            out/recorder/SUPRA_WMS_Recorder_V5.exe
+            out/SUPRA_WMS_Recorder_V5_Windows_x64.zip
+            out/recorder/SHA256.txt
+          retention-days: 30
