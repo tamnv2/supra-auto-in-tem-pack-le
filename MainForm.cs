@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
@@ -12,7 +13,7 @@ public sealed class MainForm : Form
     private readonly TextBox _tote=new(){Width=320,Font=new Font("Segoe UI",19,FontStyle.Bold)};
     private readonly TextBox _qty=new(){Width=160,Font=new Font("Segoe UI",19,FontStyle.Bold)};
     private readonly Button _ok=MakeButton("CHỌN NHÂN SỰ",205);
-    private readonly Button _show=MakeButton("MỞ TRÌNH DUYỆT",170);
+    private readonly Button _show=MakeButton("ẨN TRÌNH DUYỆT",170);
     private readonly Button _stop=MakeButton("DỪNG / XỬ LÝ TAY",195);
     private readonly Button _recover=MakeButton("XÁC NHẬN WMS SẴN SÀNG",275);
     private readonly Button _peopleButton=MakeButton("QUẢN LÝ NHÂN SỰ",190);
@@ -53,6 +54,7 @@ public sealed class MainForm : Form
     private Task? _setupTask;
     private bool _printerVerified;
     private bool _resettingBrowser;
+    private readonly System.Windows.Forms.Timer _saveWidthsTimer=new(){Interval=650};
     private string _stage="INIT";
     private static readonly Regex ToteFormat=new("^[A-Za-z0-9_-]{2,64}$",RegexOptions.Compiled);
     private static readonly Regex CodeFormat=new("^[A-Za-z0-9_-]{5,50}$",RegexOptions.Compiled);
@@ -60,7 +62,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _people=_store.LoadPeople();
-        _browser=new WmsBrowser(_store,()=>_tabs.SelectedTab=_webTab);
+        _browser=new WmsBrowser(_store,ShowBrowser);
         _browser.LoginRequired+=()=>
         {
             if(!_setupDone||IsDisposed||_resettingBrowser)return;
@@ -86,6 +88,10 @@ public sealed class MainForm : Form
         StartPosition=FormStartPosition.CenterScreen;
         BackColor=Color.FromArgb(247,249,252);
         Compose();
+        RestoreColumnWidths();
+        _history.ColumnWidthChanged+=(_,_)=>QueueColumnWidthSave();
+        _productionGrid.ColumnWidthChanged+=(_,_)=>QueueColumnWidthSave();
+        _saveWidthsTimer.Tick+=(_,_)=>{_saveWidthsTimer.Stop();SaveColumnWidths();};
         RefreshHistory();
         _midnightCheck.Tick+=(_,_)=>{if(_displayDate!=DateTime.Today)RefreshHistory();};
         _midnightCheck.Start();
@@ -104,6 +110,9 @@ public sealed class MainForm : Form
         FormClosing+=(_,_)=>{
             _midnightCheck.Stop();
             _midnightCheck.Dispose();
+            _saveWidthsTimer.Stop();
+            SaveColumnWidths();
+            _saveWidthsTimer.Dispose();
             _cancel?.Cancel();
             _setupRunning=false;
             _store.Trace("APP","CLOSING",_busy?"UNCERTAIN":"OK",_watch.ElapsedMilliseconds);
@@ -129,12 +138,9 @@ public sealed class MainForm : Form
             e.Graphics.FillRectangle(bg,area);
             // A concise display caption prevents WinForms from wrapping/clipping on
             // narrow screens and non-100% Windows scaling.
-            var caption=e.Index switch
-            {
-                2=>"SẢN LƯỢNG",
-                3=>"THÔNG TIN",
-                _=>_tabs.TabPages[e.Index].Text
-            };
+            var page=_tabs.TabPages[e.Index];
+            var caption=page==_productionTab?"SẢN LƯỢNG":
+                page==_aboutTab?"THÔNG TIN":page.Text;
             using var font=new Font("Segoe UI",selected?11f:10f,FontStyle.Bold);
             TextRenderer.DrawText(e.Graphics,caption,font,area,
                 selected?Color.White:Color.FromArgb(30,45,68),
@@ -231,6 +237,7 @@ public sealed class MainForm : Form
         _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab]);
         _tabs.SelectedTab=_webTab; // Visible on the very first frame, before async login begins.
         _tabs.SelectedIndexChanged+=(_,_)=>{
+            UpdateBrowserToggle();
             if(_tabs.SelectedTab==_productionTab)
                 RefreshProduction(_store.FilterHistory(DateTime.Today,DateTime.Today));
             if(_tabs.SelectedTab==_operationTab && !_busy && !_needsRecovery)
@@ -248,7 +255,10 @@ public sealed class MainForm : Form
         _qty.KeyDown+=async (_,e)=>{if(e.KeyCode==Keys.Enter){e.SuppressKeyPress=true;await OnSubmitAsync();}};
         _ok.Click+=async (_,_)=>await OnSubmitAsync();
         _peopleButton.Click+=(_,_)=>ManagePeople();
-        _show.Click+=(_,_)=>_browser.Reveal();
+        _show.Click+=(_,_)=>{
+            if(_tabs.TabPages.Contains(_webTab)) HideBrowser();
+            else ShowBrowser();
+        };
         _stop.Click+=(_,_)=>{
             if(!_busy){_browser.Reveal();return;}
             if(MessageBox.Show("Dừng xử lý tự động? Nếu lệnh in đã gửi, KHÔNG được tự in lại.",
@@ -261,13 +271,15 @@ public sealed class MainForm : Form
             {
                 if(!_printerVerified &&
                     MessageBox.Show(this,
-                    "Đã chọn đúng quầy SDG.24 và xác nhận máy in đang hoạt động trên WMS? "+
+                    "Đã kiểm tra trực tiếp quầy SDG.22 và máy in 21-1129-D29 (Online) trên WMS? "+
                     "Chỉ xác nhận nếu đã kiểm tra bằng tay.",
                     "Xác nhận thiết lập WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
                 _setupDone=true;_needsRecovery=false;_setupRunning=false;
                 _browser.StopStartupRouting();
                 Status("READY","Đã xác nhận màn hình quét Tote và máy in sẵn sàng.");
-                UpdateControls();FocusToteIfIdle();
+                UpdateControls();
+                HideBrowser();
+                FocusToteIfIdle();
             }
             else{_browser.Reveal();MessageBox.Show("WMS chưa trở về màn hình quét Tote. Hãy hoàn tất bằng tay.");}
         };
@@ -541,46 +553,93 @@ public sealed class MainForm : Form
 
     private async Task RunInitialSetupAsync()
     {
-        if(_setupRunning||_setupDone||IsDisposed||_resettingBrowser)return;
+        if(_setupRunning||_setupDone||IsDisposed||_resettingBrowser||_busy)return;
         _setupRunning=true;
         var accountOpenAttempts=0;
+        var boothOpenAttempts=0;
+        var printerExpandAttempts=0;
+        var readyWaits=0;
+        bool printerSelectionNeedsRecheck=false;
         try
         {
-            // Never change account, credentials, WMS service data or printer settings
-            // outside the specifically identified setup UI. Unknown UI => manual check.
-            while(_setupRunning&&!_setupDone&&!IsDisposed&&!_resettingBrowser)
+            // A new login is not "ready" until the displayed station code and
+            // currently selected printer have both been verified from the WMS UI.
+            void Manual(string reason)
             {
-                await Task.Delay(1350);
+                if(IsDisposed)return;
+                _setupRunning=false;
+                _printerVerified=false;
+                _store.Trace("SETUP","MANUAL_REQUIRED","BLOCKED",0,
+                    Regex.IsMatch(reason,"^[A-Z0-9_]{1,60}$")?reason:"UNKNOWN");
+                Status("FAULT","Không xác minh được quầy SDG.22 / máy in D29 ("+
+                    reason+"). Chuyển sang Trình duyệt để xử lý bằng tay.");
+                ShowBrowser();
+                UpdateControls();
+            }
+            async Task<bool> Step(string code)
+            {
+                if(_resettingBrowser||!_setupRunning)return false;
+                var result=await _browser.SetupActionAsync(code);
+                var reason=Regex.IsMatch(result.reason??"","^[A-Z0-9_]{1,60}$")
+                    ?result.reason:"UNSPECIFIED";
+                _store.Trace("SETUP","ACTION_"+code,result.ok?"DONE":"BLOCKED",0,
+                    result.ok?"":reason);
+                if(result.ok)return true;
+                Manual(reason);
+                return false;
+            }
+
+            while(_setupRunning&&!_setupDone&&!IsDisposed&&!_resettingBrowser&&!_busy)
+            {
+                await Task.Delay(1050);
                 if(!_setupRunning||IsDisposed||_resettingBrowser)break;
                 _browser.TryNavigatePackingAfterLogin();
                 var p=await _browser.SetupPeekAsync();
-                if(_resettingBrowser||!_setupRunning)break;
-                if(p?.ok!=true)continue; // Waiting for manual WMS login or navigation.
-                async Task<bool> Step(string code)
-                {
-                    if(_resettingBrowser||!_setupRunning)return false;
-                    var a=await _browser.SetupActionAsync(code);
-                    var safe=Regex.IsMatch(a.reason??"","^[A-Z0-9_]{1,60}$")?a.reason:"UNSPECIFIED";
-                    _store.Trace("SETUP","ACTION_"+code,a.ok?"DONE":"BLOCKED",0,a.ok?"":safe);
-                    if(a.ok)return true;
-                    Status("FAULT","Không xác minh được bước thiết lập "+code+". Chọn tab WMS để làm bằng tay, sau đó bấm Xác nhận sẵn sàng.");
-                    _browser.Reveal();
-                    _setupRunning=false;
-                    return false;
-                }
+                if(!_setupRunning||_resettingBrowser)break;
+                if(p?.ok!=true)continue; // WMS is still on the login page.
+
                 if(p.boothDialog)
                 {
                     if(!await Step("BOOTH_SET"))break;
                     if(!await Step("BOOTH_CONFIRM"))break;
-                    accountOpenAttempts=0;
+                    _store.Trace("SETUP","BOOTH_SUBMITTED","DONE");
+                    continue; // Must read back "QUẦY ĐÓNG GÓI [SDG.22]".
+                }
+
+                if(!p.boothCorrect)
+                {
+                    if(!p.boothHeaderKnown)
+                    {
+                        if(++readyWaits>8){Manual("BOOTH_HEADER_UNKNOWN");break;}
+                        continue;
+                    }
+                    if(!p.packingReady)
+                    {
+                        if(++readyWaits>8){Manual("BOOTH_INPUT_NOT_READY");break;}
+                        continue;
+                    }
+                    if(++boothOpenAttempts>1){Manual("BOOTH_NOT_CONFIRMED");break;}
+                    if(!await Step("BOOTH_PREPARE"))break;
+                    try
+                    {
+                        // Send actual Enter through the WebView2 browser input route,
+                        // never type a fake Tote or click by screen coordinates.
+                        await _browser.EnterAsync();
+                        _store.Trace("SETUP","BOOTH_OPEN_ENTER","DONE");
+                    }
+                    catch {Manual("BOOTH_ENTER_FAILED");break;}
                     continue;
                 }
+
+                readyWaits=0;
                 if(p.printerDialog)
                 {
-                    if(p.printerSelected)
+                    accountOpenAttempts=0;
+                    if(p.printerCorrect)
                     {
                         if(!await Step("PRINTER_CLOSE"))break;
                         _printerVerified=true;
+                        printerSelectionNeedsRecheck=false;
                         continue;
                     }
                     if(p.printerOptionVisible)
@@ -588,36 +647,45 @@ public sealed class MainForm : Form
                         if(!await Step("PRINTER_PICK"))break;
                         await Task.Delay(350);
                         if(!await Step("PRINTER_CONFIRM"))break;
-                        _printerVerified=true;
+                        printerSelectionNeedsRecheck=true;
+                        // Do not mark ready until the dialog is opened again
+                        // and the exact selected D29 label is read back.
                         continue;
                     }
-                    if(p.printerEmpty)
+                    if(p.printerEmpty||p.printerWrong)
                     {
+                        if(++printerExpandAttempts>2){Manual("PRINTER_OPTION_NOT_VISIBLE");break;}
                         if(!await Step("PRINTER_EXPAND"))break;
                         continue;
                     }
-                    Status("FAULT","Không nhận diện được máy in đã chọn. Vui lòng kiểm tra trong tab WMS.");
-                    _browser.Reveal();break;
+                    Manual("PRINTER_FIELD_UNKNOWN");break;
+                }
+
+                if(p.packingReady&&_printerVerified&&!printerSelectionNeedsRecheck)
+                {
+                    _setupDone=true;
+                    _browser.StopStartupRouting();
+                    _store.Trace("SETUP","STATION_D29_VERIFIED","DONE");
+                    Status("READY","Đã xác minh quầy SDG.22 và máy in 21-1129-D29 (Online). Sẵn sàng quét Tote.");
+                    UpdateControls();
+                    HideBrowser();
+                    FocusToteIfIdle();
+                    break;
                 }
                 if(p.settingsVisible)
                 {
                     if(!await Step("PRINTER_MENU"))break;
                     continue;
                 }
-                if(!p.packingReady)continue;
-                if(_printerVerified)
+                if(!p.packingReady)
                 {
-                    _setupDone=true;
-                    _browser.StopStartupRouting();
-                    Status("READY","Quầy SDG.24 và máy in WMS đã được xác nhận. Sẵn sàng quét Tote.");
-                    UpdateControls();FocusToteIfIdle();
-                    break;
+                    if(++readyWaits>8){Manual("PACKING_NOT_READY");break;}
+                    continue;
                 }
-                if(p.accountTriggerCount!=1 || accountOpenAttempts>=3)
+                if(p.accountTriggerCount!=1||accountOpenAttempts>=3)
                 {
-                    Status("FAULT","Cần mở tài khoản → Thiết lập máy in và kiểm tra máy in bằng tay. "+
-                        "Sau khi hoàn tất, bấm Xác nhận WMS sẵn sàng.");
-                    _browser.Reveal();break;
+                    Manual("PRINTER_MENU_NOT_UNIQUE");
+                    break;
                 }
                 accountOpenAttempts++;
                 if(!await Step("ACCOUNT_OPEN"))break;
@@ -628,8 +696,8 @@ public sealed class MainForm : Form
             if(!IsDisposed)
             {
                 _store.Trace("SETUP","STARTUP_EXCEPTION","ERROR");
-                Status("FAULT","Không tự xác minh được thiết lập WMS. Kiểm tra thủ công trong tab Trình duyệt.");
-                _browser.Reveal();
+                Status("FAULT","Không tự xác minh được quầy hoặc máy in. Kiểm tra thủ công trong tab Trình duyệt.");
+                ShowBrowser();
             }
         }
         finally
@@ -637,6 +705,72 @@ public sealed class MainForm : Form
             _setupRunning=false;
             if(!IsDisposed)UpdateControls();
         }
+    }
+
+    private void UpdateBrowserToggle()
+    {
+        if(!IsDisposed)
+            _show.Text=_tabs.TabPages.Contains(_webTab)?"ẨN TRÌNH DUYỆT":"HIỆN TRÌNH DUYỆT";
+    }
+    private void ShowBrowser()
+    {
+        if(IsDisposed)return;
+        if(!_tabs.TabPages.Contains(_webTab))
+            _tabs.TabPages.Insert(1,_webTab);
+        _tabs.SelectedTab=_webTab;
+        UpdateBrowserToggle();
+    }
+    private void HideBrowser()
+    {
+        if(IsDisposed)return;
+        if(!_tabs.TabPages.Contains(_webTab))return;
+        if(_tabs.SelectedTab==_webTab)
+            _tabs.SelectedTab=_operationTab;
+        _tabs.TabPages.Remove(_webTab);
+        UpdateBrowserToggle();
+    }
+    private sealed class GridWidths
+    {
+        public int[] History {get;set;}=[];
+        public int[] Production {get;set;}=[];
+    }
+    private string GridWidthFile=>Path.Combine(_store.Root,"grid-widths.json");
+    private void RestoreColumnWidths()
+    {
+        try
+        {
+            if(!File.Exists(GridWidthFile))return;
+            var saved=JsonSerializer.Deserialize<GridWidths>(File.ReadAllText(GridWidthFile));
+            if(saved is null)return;
+            for(var i=0;i<Math.Min(_history.Columns.Count,saved.History.Length);i++)
+                if(saved.History[i]>=55&&saved.History[i]<=1400)
+                    _history.Columns[i].Width=saved.History[i];
+            for(var i=0;i<Math.Min(_productionGrid.Columns.Count,saved.Production.Length);i++)
+                if(saved.Production[i]>=55&&saved.Production[i]<=1400)
+                    _productionGrid.Columns[i].Width=saved.Production[i];
+        }
+        catch { _store.Trace("UI","RESTORE_COLUMN_WIDTHS","ERROR"); }
+    }
+    private void QueueColumnWidthSave()
+    {
+        if(IsDisposed)return;
+        _saveWidthsTimer.Stop();
+        _saveWidthsTimer.Start();
+    }
+    private void SaveColumnWidths()
+    {
+        try
+        {
+            Directory.CreateDirectory(_store.Root);
+            var data=new GridWidths{
+                History=_history.Columns.Cast<DataGridViewColumn>().Select(c=>c.Width).ToArray(),
+                Production=_productionGrid.Columns.Cast<DataGridViewColumn>().Select(c=>c.Width).ToArray()
+            };
+            var temp=GridWidthFile+".tmp";
+            File.WriteAllText(temp,JsonSerializer.Serialize(data));
+            File.Move(temp,GridWidthFile,true);
+        }
+        catch { _store.Trace("UI","SAVE_COLUMN_WIDTHS","ERROR"); }
     }
 
     private void UpdateControls()
