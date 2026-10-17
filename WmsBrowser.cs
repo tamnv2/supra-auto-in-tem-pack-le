@@ -30,52 +30,50 @@ internal sealed class BrowserResult
     public string reason {get;set;}="";
 }
 
-internal sealed class WmsBrowser : Form
+internal sealed class WmsBrowser : UserControl
 {
     private const string Target="https://wms-supra.winmart.vn/sft3/app/saleorder/packing";
     private readonly WebView2 _view=new(){Dock=DockStyle.Fill};
     private readonly LocalStore _storage;
-    private string? _profile;
-    private bool _quit;
+    private readonly string _profile;
+    private readonly Action _openBrowserTab;
     public bool Ready {get;private set;}
-    public WmsBrowser(LocalStore storage)
+    public WmsBrowser(LocalStore storage,Action openBrowserTab)
     {
         _storage=storage;
-        Text="SUPRA WMS – Đăng nhập / Chọn máy in / Xử lý thủ công";
-        Width=1230;Height=800;MinimumSize=new Size(650,500);
-        StartPosition=FormStartPosition.CenterScreen;
+        _openBrowserTab=openBrowserTab;
+        _profile=Path.Combine(storage.Root,"webview2-profile");
+        Dock=DockStyle.Fill;
         Controls.Add(_view);
-        FormClosing+=(_,e)=>{if(!_quit){e.Cancel=true;Hide();}};
     }
     public void Reveal()
     {
-        if(IsDisposed)return;
-        Show();WindowState=FormWindowState.Normal;Activate();
+        if(!IsDisposed)_openBrowserTab();
     }
     public void Terminate()
     {
-        _quit=true;
-        try{Close();}catch{}
-        // InPrivate profile should not survive exit; browser-native temporary locks may defer deletion.
-        if(_profile!=null)
-        {
-            try{Directory.Delete(_profile,true);}catch{}
-        }
+        Ready=false;
+        // A persistent browser profile retains site sessions and passwords by user choice.
+        // This application never reads, logs or exports the profile contents.
+        _view.Dispose();
     }
     public async Task InitializeAsync()
     {
         if(Ready)return;
-        _profile=Path.Combine(Path.GetTempPath(),"supra-auto-pack-web-"+Guid.NewGuid().ToString("N"));
         try
         {
+            Directory.CreateDirectory(_profile);
             var env=await CoreWebView2Environment.CreateAsync(null,_profile);
             var settings=env.CreateCoreWebView2ControllerOptions();
-            settings.IsInPrivateModeEnabled=true;
+            settings.IsInPrivateModeEnabled=false;
             await _view.EnsureCoreWebView2Async(env,settings);
             var core=_view.CoreWebView2;
             core.Settings.IsWebMessageEnabled=false;
             core.Settings.AreDevToolsEnabled=false;
             core.Settings.AreDefaultContextMenusEnabled=false;
+            core.Settings.IsPasswordAutosaveEnabled=true;
+            // Password manager is separate from saving names, addresses and other form data.
+            core.Settings.IsGeneralAutofillEnabled=false;
             await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsWorkflowJs.Script);
             core.NavigationStarting+=(_,e)=>{
                 if(!AllowedUrl(e.Uri))
