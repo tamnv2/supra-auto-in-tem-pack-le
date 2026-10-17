@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Windows.Forms;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -271,6 +273,7 @@ internal sealed class RecorderForm : Form
                 string? marker=Environment.GetEnvironmentVariable("SUPRA_SMOKE_RESULT");
                 if(!string.IsNullOrWhiteSpace(marker))File.WriteAllText(marker,"PASS "+result);
                 _smokeTimer?.Stop();
+                _finishing=false;
                 Close();
             }
         }
