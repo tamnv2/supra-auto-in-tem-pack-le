@@ -23,7 +23,14 @@ public sealed class MainForm : Form
     private readonly TabPage _webTab=new("TRÌNH DUYỆT WMS");
     private readonly TabPage _productionTab=new("SẢN LƯỢNG HÔM NAY");
     private readonly TabPage _aboutTab=new("THÔNG TIN PHẦN MỀM");
-    private readonly Label _productionOverview=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",12,FontStyle.Bold),Padding=new Padding(12),BackColor=Color.White};
+    private readonly Label _productionOverview=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",14,FontStyle.Bold),Padding=new Padding(10,6,6,6),ForeColor=Color.FromArgb(26,43,69),TextAlign=ContentAlignment.MiddleLeft};
+    private readonly Label[] _metricCards=Enumerable.Range(0,8).Select(_=>new Label
+    {
+        Dock=DockStyle.Fill,Font=new Font("Segoe UI",11.5f,FontStyle.Bold),
+        Padding=new Padding(14,8,8,8),TextAlign=ContentAlignment.MiddleLeft,
+        BackColor=Color.White,ForeColor=Color.FromArgb(26,43,69),
+        Margin=new Padding(5)
+    }).ToArray();
     private readonly DataGridView _productionGrid=new(){Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,RowHeadersVisible=false,BackgroundColor=Color.White,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.None,ScrollBars=ScrollBars.Both};
     private readonly CheckBox _startWithWindows=new(){AutoSize=true,Text="Tự động chạy khi đăng nhập Windows"};
     private readonly Label _status=new(){AutoSize=false,Height=68,Font=new Font("Segoe UI",10,FontStyle.Bold)};
@@ -44,6 +51,7 @@ public sealed class MainForm : Form
     private bool _setupDone;
     private bool _setupRunning;
     private bool _printerVerified;
+    private bool _resettingBrowser;
     private string _stage="INIT";
     private static readonly Regex ToteFormat=new("^[A-Za-z0-9_-]{2,64}$",RegexOptions.Compiled);
     private static readonly Regex CodeFormat=new("^[A-Za-z0-9_-]{5,50}$",RegexOptions.Compiled);
@@ -111,17 +119,26 @@ public sealed class MainForm : Form
     {
         _tabs.DrawMode=TabDrawMode.OwnerDrawFixed;
         _tabs.SizeMode=TabSizeMode.Fixed;
-        _tabs.ItemSize=new Size(245,48);
+        _tabs.ItemSize=new Size(240,50);
         _tabs.DrawItem+=(_,e)=>
         {
             var selected=e.Index==_tabs.SelectedIndex;
             var area=e.Bounds;
             using var bg=new SolidBrush(selected?_navy:Color.FromArgb(231,237,245));
-            using var ink=new SolidBrush(selected?Color.White:Color.FromArgb(30,45,68));
             e.Graphics.FillRectangle(bg,area);
-            using var font=new Font("Segoe UI",selected?11.5f:10.5f,FontStyle.Bold);
-            using var format=new StringFormat{Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center,Trimming=StringTrimming.EllipsisCharacter};
-            e.Graphics.DrawString(_tabs.TabPages[e.Index].Text,font,ink,area,format);
+            // A concise display caption prevents WinForms from wrapping/clipping on
+            // narrow screens and non-100% Windows scaling.
+            var caption=e.Index switch
+            {
+                2=>"SẢN LƯỢNG",
+                3=>"THÔNG TIN",
+                _=>_tabs.TabPages[e.Index].Text
+            };
+            using var font=new Font("Segoe UI",selected?11f:10f,FontStyle.Bold);
+            TextRenderer.DrawText(e.Graphics,caption,font,area,
+                selected?Color.White:Color.FromArgb(30,45,68),
+                TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|
+                TextFormatFlags.SingleLine|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
         };
         var title=new Panel{Dock=DockStyle.Top,Height=62,BackColor=_navy};
         title.Controls.Add(new Label{Text="WMS  |  HỖ TRỢ ĐÓNG GÓI VÀ GHI NHẬN NĂNG SUẤT",UseMnemonic=false,Dock=DockStyle.Fill,
@@ -241,50 +258,79 @@ public sealed class MainForm : Form
 
     private Control BuildProductionTab()
     {
-        var root=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,
-            Padding=new Padding(14),BackColor=Color.FromArgb(247,249,252)};
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,135));
+        var root=new TableLayoutPanel
+        {
+            Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,
+            Padding=new Padding(12,6,12,10),BackColor=Color.FromArgb(247,249,252)
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,48));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,174));
         root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute,84));
-        var head=new Label{Dock=DockStyle.Fill,Font=new Font("Segoe UI",11),
-            Text="Báo cáo từ lịch sử lưu trên máy. DO chỉ tính khi vòng giao diện WMS hoàn tất. "+
-                 "Tổng thời gian xử lý KHÔNG phải tổng giờ làm việc; các khoảng nghỉ/chờ giữa các lượt không được tính. "+
-                 "Chưa có dữ liệu điểm/SKU/Pcs thì không chấm điểm hoặc xếp hạng hiệu suất.",
-            BackColor=Color.White,Padding=new Padding(14)};
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,98));
+        var metrics=new TableLayoutPanel
+        {
+            Dock=DockStyle.Fill,ColumnCount=4,RowCount=2,
+            Margin=new Padding(0),Padding=new Padding(0)
+        };
+        for(var i=0;i<4;i++)metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,25));
+        for(var i=0;i<2;i++)metrics.RowStyles.Add(new RowStyle(SizeType.Percent,50));
+        for(var i=0;i<_metricCards.Length;i++)
+            metrics.Controls.Add(_metricCards[i],i%4,i/4);
         _productionGrid.EnableHeadersVisualStyles=false;
-        _productionGrid.ColumnHeadersHeight=44;
+        _productionGrid.ColumnHeadersHeight=48;
         _productionGrid.ColumnHeadersDefaultCellStyle.BackColor=_navy;
         _productionGrid.ColumnHeadersDefaultCellStyle.ForeColor=Color.White;
-        _productionGrid.ColumnHeadersDefaultCellStyle.Font=new Font("Segoe UI",10.5f,FontStyle.Bold);
+        _productionGrid.ColumnHeadersDefaultCellStyle.Font=new Font("Segoe UI",10,FontStyle.Bold);
         _productionGrid.RowTemplate.Height=36;
         _productionGrid.SelectionMode=DataGridViewSelectionMode.FullRowSelect;
+        _productionGrid.AlternatingRowsDefaultCellStyle.BackColor=Color.FromArgb(243,247,252);
         foreach(var (name,width) in new (string,int)[]{
             ("Nhân sự",195),("DO hoàn tất",132),("Lượt hoàn tất",132),("Cần kiểm tra",132),
-            ("Điểm ghi nhận",142),("Có điểm / lượt",145),("Tổng xử lý",143),
-            ("Trung vị / lượt",145),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
+            ("Điểm ghi nhận",150),("Lượt có điểm",132),("Tổng thời gian xử lý",188),
+            ("Thời gian thường gặp",200),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
         {
-            var column=new DataGridViewTextBoxColumn{HeaderText=name,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable};
-            _productionGrid.Columns.Add(column);
+            _productionGrid.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                HeaderText=name,Width=width,SortMode=DataGridViewColumnSortMode.NotSortable
+            });
         }
+        var explanation=new TextBox
+        {
+            Dock=DockStyle.Fill,ReadOnly=true,Multiline=true,WordWrap=true,
+            BorderStyle=BorderStyle.None,ScrollBars=ScrollBars.Vertical,
+            BackColor=Color.White,Font=new Font("Segoe UI",10.5f),TabStop=false,
+            Margin=new Padding(5,8,5,0),
+            Text="CÁCH HIỂU SỐ LIỆU"+Environment.NewLine+
+                 "DO hoàn tất chỉ tính những lượt WMS đã trở lại trang quét Tote. "+
+                 "Thời gian thường gặp là giá trị nằm giữa khi sắp xếp thời gian xử lý các lượt từ ngắn đến dài "+
+                 "(nếu có hai lượt ở giữa, lấy trung bình của chúng). "+
+                 "Tổng thời gian xử lý không phải thời gian của cả ca. "+
+                 "Thiếu điểm, SKU hoặc Pcs thì không tự suy đoán hay xếp hạng nhân sự."
+        };
         root.Controls.Add(_productionOverview,0,0);
-        root.Controls.Add(_productionGrid,0,1);
-        root.Controls.Add(head,0,2);
+        root.Controls.Add(metrics,0,1);
+        root.Controls.Add(_productionGrid,0,2);
+        root.Controls.Add(explanation,0,3);
         return root;
     }
     private void RefreshProduction(IReadOnlyList<HistoryRow> rows)
     {
         if(_productionGrid.Columns.Count==0)return;
         var data=DailyProduction.From(rows);
-        var points=data.Points.HasValue
-            ?data.Points.Value.ToString("0.##")+" (có điểm "+data.ScoredAttempts+"/"+data.Completed+" lượt)"
-            :"Chưa có dữ liệu";
-        _productionOverview.Text="SẢN LƯỢNG NGÀY "+DateTime.Today.ToString("dd/MM/yyyy")+
-            Environment.NewLine+"DO hoàn tất: "+data.UniqueDo+
-            "     |     Lượt hoàn tất: "+data.Completed+"/"+data.Attempts+
-            "     |     Cần kiểm tra: "+data.NeedsReview+
-            Environment.NewLine+"Điểm đã ghi nhận: "+points+
-            "     |     Tổng thời gian xử lý lượt hoàn tất: "+TimeSpan.FromSeconds(data.ProcessingSeconds).ToString(@"hh\:mm\:ss")+
-            Environment.NewLine+"Đang thống kê "+data.People.Count+" nhân sự có dữ liệu trong ngày.";
+        _productionOverview.Text="SẢN LƯỢNG NGÀY "+DateTime.Today.ToString("dd/MM/yyyy");
+        var cards=new[]
+        {
+            "DO hoàn tất"+Environment.NewLine+data.UniqueDo,
+            "Lượt hoàn tất"+Environment.NewLine+data.Completed+"/"+data.Attempts,
+            "Cần kiểm tra"+Environment.NewLine+data.NeedsReview,
+            "Điểm ghi nhận"+Environment.NewLine+(data.Points?.ToString("0.##")??"Chưa có dữ liệu"),
+            "Thời gian xử lý"+Environment.NewLine+TimeSpan.FromSeconds(data.ProcessingSeconds).ToString(@"hh\:mm\:ss"),
+            "Nhân sự có dữ liệu"+Environment.NewLine+data.People.Count,
+            "Lượt đã có điểm"+Environment.NewLine+data.ScoredAttempts+"/"+data.Completed,
+            "Chất lượng ghi nhận"+Environment.NewLine+
+                 (data.NeedsReview==0?"Không có lượt cần kiểm tra":"Cần kiểm tra WMS")
+        };
+        for(var i=0;i<_metricCards.Length;i++)_metricCards[i].Text=cards[i];
         _productionGrid.Rows.Clear();
         foreach(var p in data.People)
         {
@@ -295,7 +341,7 @@ public sealed class MainForm : Form
                 p.MedianSeconds.HasValue?p.MedianSeconds.Value+" giây":"—",
                 p.FirstStart,p.LastEnd,
                 p.NeedsReview>0?"Có "+p.NeedsReview+" lượt cần xác minh WMS":
-                p.Completed>0?"Các lượt đã ghi nhận đều hoàn tất UI":"Chưa có lượt hoàn tất");
+                p.Completed>0?"Các lượt đã ghi nhận đều hoàn tất trên giao diện WMS":"Chưa có lượt hoàn tất");
         }
     }
 
