@@ -175,7 +175,10 @@ internal static class WmsWorkflowJs
           if(!p)return {ok:false,reason:'PRINTER_DIALOG_MISSING'};
           if(printerValue(printerField(p))!==TARGET_PRINTER)
             return {ok:false,reason:'PRINTER_NOT_D29'};
-          return click(buttons(p).filter(e=>name(e)==='Đóng'));
+          // The recorded WMS modal has "Xác nhận" but may omit "Đóng".
+          // Reconfirm only when D29 is already displayed exactly.
+          const close=buttons(p).filter(e=>name(e)==='Đóng');
+          return click(close.length===1?close:buttons(p).filter(e=>name(e)==='Xác nhận'));
         }
         return {ok:false,reason:'UNKNOWN_SETUP_ACTION'};
       };
