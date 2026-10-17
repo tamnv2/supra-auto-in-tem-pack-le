@@ -29,6 +29,9 @@ internal sealed class BrowserSetupPeek
     public bool ok {get;set;}
     public string reason {get;set;}="";
     public bool boothDialog {get;set;}
+    public bool boothInputReady {get;set;}
+    public bool boothValueCorrect {get;set;}
+    public bool boothConfirmEnabled {get;set;}
     public bool boothHeaderKnown {get;set;}
     public bool boothCorrect {get;set;}
     public bool printerDialog {get;set;}
@@ -194,9 +197,31 @@ internal sealed class WmsBrowser : UserControl
         {
             var raw=await _view.CoreWebView2.ExecuteScriptAsync(
                 "window.__supraPackLeV1?.setupPeek() || {ok:false,reason:'NO_SCRIPT'}");
-            return JsonSerializer.Deserialize<BrowserSetupPeek>(raw);
+            var result=JsonSerializer.Deserialize<BrowserSetupPeek>(raw);
+            if(result?.reason=="NO_SCRIPT")
+            {
+                // Angular routing may reach packing before a new document's
+                // script has finished registering. Install once on the live
+                // packing document rather than leaving the operator waiting.
+                if(Uri.TryCreate(_view.CoreWebView2.Source,UriKind.Absolute,out var uri) &&
+                   uri.Host.Equals("wms-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) &&
+                   uri.AbsolutePath.TrimEnd('/').Equals("/sft3/app/saleorder/packing",
+                       StringComparison.OrdinalIgnoreCase))
+                {
+                    await _view.CoreWebView2.ExecuteScriptAsync(WmsWorkflowJs.Script);
+                    _storage.Trace("SETUP","SCRIPT_REINJECTED","DONE");
+                    raw=await _view.CoreWebView2.ExecuteScriptAsync(
+                        "window.__supraPackLeV1?.setupPeek() || {ok:false,reason:'NO_SCRIPT'}");
+                    result=JsonSerializer.Deserialize<BrowserSetupPeek>(raw);
+                }
+            }
+            return result;
         }
-        catch { return null; }
+        catch
+        {
+            _storage.Trace("SETUP","SETUP_PEEK_FAILED","ERROR");
+            return null;
+        }
     }
     public async Task<BrowserResult> SetupActionAsync(string action)
     {
