@@ -288,7 +288,7 @@ public sealed class MainForm : Form
         foreach(var (name,width) in new (string,int)[]{
             ("Nhân sự",195),("DO hoàn tất",132),("Lượt hoàn tất",132),("Cần kiểm tra",132),
             ("Điểm ghi nhận",150),("Lượt có điểm",132),("Tổng thời gian xử lý",188),
-            ("Thời gian thường gặp",200),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
+            ("Thời gian ở giữa",200),("Bắt đầu",110),("Kết thúc",110),("Nhận xét",275)})
         {
             _productionGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
@@ -303,7 +303,7 @@ public sealed class MainForm : Form
             Margin=new Padding(5,8,5,0),
             Text="CÁCH HIỂU SỐ LIỆU"+Environment.NewLine+
                  "DO hoàn tất chỉ tính những lượt WMS đã trở lại trang quét Tote. "+
-                 "Thời gian thường gặp là giá trị nằm giữa khi sắp xếp thời gian xử lý các lượt từ ngắn đến dài "+
+                 "Thời gian ở giữa là thời gian của lượt đứng giữa khi xếp các lượt từ nhanh đến chậm "+
                  "(nếu có hai lượt ở giữa, lấy trung bình của chúng). "+
                  "Tổng thời gian xử lý không phải thời gian của cả ca. "+
                  "Thiếu điểm, SKU hoặc Pcs thì không tự suy đoán hay xếp hạng nhân sự."
