@@ -93,7 +93,7 @@ internal static class WmsPrinterSetupJs
         const d=dialog();
         return d?unique(buttons(d).filter(el=>['Đóng','Thoát'].includes(label(el)))):null;
       };
-      const peek = () => {
+      const peek = (target='') => {
         if (!validRoute()) return {ok:false,reason:'NOT_AUTHENTICATED_WMS_ROUTE'};
         const d=dialog(),f=field();
         syncCache();
@@ -106,6 +106,7 @@ internal static class WmsPrinterSetupJs
           accountTriggerCount:accountTriggers().length,
           settingsVisible:menuItems().length===1,optionsExpanded:expanded(),
           options:all.slice(0,300),optionCount:all.length,
+          choiceVisible:!!target && options().filter(o=>label(o)===target).length===1,
           scanDone:!!d && !!f && expanded() && !hasMore,
           confirmEnabled:!!confirm() && enabled(confirm()),
           closeEnabled:!!close() && enabled(close())
@@ -131,6 +132,11 @@ internal static class WmsPrinterSetupJs
           if (!enabled(f))return {ok:false,reason:'PRINTER_FIELD_NOT_READY'};
           if (f.tagName !== 'SELECT') {f.click();}
           syncCache();
+          return {ok:true};
+        }
+        if (action==='SCAN_RESET') {
+          const s=scroller();
+          if(s) {s.scrollTop=0;s.dispatchEvent(new Event('scroll',{bubbles:true}));}
           return {ok:true};
         }
         if (action==='SCAN_NEXT') {
