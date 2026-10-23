@@ -12,7 +12,9 @@ const make=(text,click=()=>{})=>({
   closest:()=>null,querySelectorAll:()=>[]
 });
 class Input{
-  constructor(placeholder=''){this.value='';this.disabled=false;this.placeholder=placeholder;}
+  constructor(placeholder=''){this._value='';this.disabled=false;this.placeholder=placeholder;}
+  get value(){return this._value;}
+  set value(value){this._value=value;}
   getClientRects(){return [1];}
   getAttribute(k){return k==='placeholder'?this.placeholder:null;}
   focus(){document.activeElement=this;}
