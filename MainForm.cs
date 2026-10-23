@@ -64,6 +64,7 @@ public sealed class MainForm : Form
     private bool _printerVerified;
     private string _verifiedPrinter="";
     private int _printerSetupGeneration;
+    private int _activeTemChanPrinterSetupGeneration=-1;
     private bool _resettingBrowser;
     private readonly System.Windows.Forms.Timer _saveWidthsTimer=new(){Interval=650};
     private string _stage="INIT";
@@ -78,6 +79,12 @@ public sealed class MainForm : Form
         {
             if(_temChanMode)
             {
+                // Manual login is already awaited by the running setup.
+                if(_activeTemChanPrinterSetupGeneration==_printerSetupGeneration)
+                {
+                    _browser.Reveal();
+                    return;
+                }
                 _temChanPanel?.SetPrinterReady(false);
                 var generation=++_printerSetupGeneration;
                 _browser.Reveal();
@@ -137,8 +144,13 @@ public sealed class MainForm : Form
                 else
                 {
                     _temChanPanel?.UpdateBrowserButton();
-                    var generation=++_printerSetupGeneration;
-                    _=RunTemChanPrinterSetupAsync(generation);
+                    // LoginRequired may have started a setup before Initialize
+                    // returned. Avoid two competing runs on the same WMS modal.
+                    if(_activeTemChanPrinterSetupGeneration!=_printerSetupGeneration)
+                    {
+                        var generation=++_printerSetupGeneration;
+                        _=RunTemChanPrinterSetupAsync(generation);
+                    }
                 }
             }
             catch
@@ -848,7 +860,9 @@ public sealed class MainForm : Form
 
     private async Task RunTemChanPrinterSetupAsync(int generation)
     {
-        if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration)return;
+        if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration ||
+            _activeTemChanPrinterSetupGeneration==generation)return;
+        _activeTemChanPrinterSetupGeneration=generation;
         _temChanPanel?.SetPrinterReady(false);
         try
         {
@@ -886,6 +900,11 @@ public sealed class MainForm : Form
                     "IN TEM CHẴN · Máy in chưa sẵn sàng",
                     MessageBoxButtons.OK,MessageBoxIcon.Warning);
             }
+        }
+        finally
+        {
+            if(_activeTemChanPrinterSetupGeneration==generation)
+                _activeTemChanPrinterSetupGeneration=-1;
         }
     }
 
