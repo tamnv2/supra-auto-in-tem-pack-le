@@ -43,6 +43,13 @@ internal sealed class BrowserSetupPeek
     public bool printerEmpty {get;set;}
     public bool printerOptionVisible {get;set;}
 }
+internal sealed class PrinterPointerTarget
+{
+    public bool ok {get;set;}
+    public string reason {get;set;}="";
+    public double x {get;set;}
+    public double y {get;set;}
+}
 internal sealed class PrinterSetupPeek
 {
     public bool ok {get;set;}
@@ -92,9 +99,13 @@ internal sealed class WmsBrowser : UserControl
     private bool _temChanMode;
     private bool _temChanRouting;
     private int _temChanRedirects;
-    public void TryNavigateTemChanListAfterLogin()
+    private DateTime _lastTemChanRouteAt=DateTime.MinValue;
+    // A pre-login visit to /saleorder/list is not proof of authentication:
+    // SSO can send the user to the WMS landing page afterwards. Keep routing
+    // active until the real signed-in account control is visible on the list.
+    public async Task TryNavigateTemChanListAfterLoginAsync()
     {
-        if(!_temChanMode || !_temChanRouting || _temChanRedirects>=3)return;
+        if(!_temChanMode || !_temChanRouting || !Ready)return;
         var core=_view.CoreWebView2;
         if(core is null || !Uri.TryCreate(core.Source,UriKind.Absolute,out var uri))return;
         if(uri.Scheme!="https" || uri.Host!="wms-supra.winmart.vn" ||
@@ -103,11 +114,30 @@ internal sealed class WmsBrowser : UserControl
         if(uri.AbsolutePath.TrimEnd('/').Equals("/sft3/app/saleorder/list",
             StringComparison.OrdinalIgnoreCase))
         {
-            _temChanRouting=false;
+            var p=await PrinterPeekAsync();
+            if(_temChanMode && p?.ok==true && p.accountTriggerCount==1)
+            {
+                _temChanRouting=false;
+                _storage.Trace("SETUP","SO_LIST_AUTHENTICATED","DONE");
+            }
             return;
         }
+        if(_temChanRedirects>=3 ||
+           DateTime.UtcNow-_lastTemChanRouteAt<TimeSpan.FromSeconds(3))return;
+        // The route must be an authenticated WMS application page, not a
+        // password form / SSO callback. Query only a button count, no secrets.
+        string authenticated;
+        try
+        {
+            authenticated=await core.ExecuteScriptAsync(
+                "!!document.querySelector('mat-toolbar#app-header app-header > button.mat-menu-trigger.m-r-5')");
+        }
+        catch{return;}
+        if(authenticated!="true" || !_temChanMode || !_temChanRouting ||
+           !string.Equals(core.Source,uri.AbsoluteUri,StringComparison.OrdinalIgnoreCase))return;
         _temChanRedirects++;
-        _storage.Trace("SETUP","RETURN_SO_LIST_ROUTE","OK");
+        _lastTemChanRouteAt=DateTime.UtcNow;
+        _storage.Trace("SETUP","RETURN_SO_LIST_ROUTE","DONE");
         core.Navigate(TemChanList);
     }
     public async Task<PrinterSetupPeek?> PrinterPeekAsync(string selected="")
@@ -128,6 +158,63 @@ internal sealed class WmsBrowser : UserControl
             return null;
         }
     }
+    // DevTools Input.dispatchMouseEvent sends a real Chromium pointer event
+    // to an element verified by unique DOM semantics and fresh hit testing.
+    // CSS viewport coordinates are derived only at click time, never guessed,
+    // persisted or used to locate a business object.
+    private async Task<BrowserResult> PrinterNativeExpandAsync()
+    {
+        var core=_view.CoreWebView2;
+        if(core is null)return new(){reason="WEB_NOT_READY"};
+        var json=await core.ExecuteScriptAsync(
+            "window.__supraPrinterV1?.pointerTarget('EXPAND') || "+ 
+            "{ok:false,reason:'NO_PRINTER_SCRIPT'}");
+        var target=JsonSerializer.Deserialize<PrinterPointerTarget>(json);
+        if(target?.ok!=true)
+        {
+            if(target?.reason=="NATIVE_SELECT")
+                return await PrinterScriptActionAsync("EXPAND","");
+            return new(){reason=target?.reason??"PRINTER_TARGET_NOT_READY"};
+        }
+        var xy=new {x=target.x,y=target.y};
+        await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",
+            JsonSerializer.Serialize(new {type="mouseMoved",xy.x,xy.y,button="none"}));
+        await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",
+            JsonSerializer.Serialize(new {type="mousePressed",xy.x,xy.y,button="left",clickCount=1}));
+        await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",
+            JsonSerializer.Serialize(new {type="mouseReleased",xy.x,xy.y,button="left",clickCount=1}));
+        // Allow Angular's asynchronous overlay and option stream to hydrate.
+        for(var attempt=0;attempt<5;attempt++)
+        {
+            await Task.Delay(250);
+            var peek=await PrinterPeekAsync();
+            if(peek?.optionsExpanded==true && peek.optionCount>0)
+                return new(){ok=true,reason="NATIVE_POINTER_OPTIONS_VISIBLE"};
+        }
+        // Only if a trusted browser click failed: clear the SEARCH query,
+        // never confirm or change the stored printer without real options.
+        var fallback=await PrinterScriptActionAsync("EXPAND","");
+        if(!fallback.ok)return fallback;
+        for(var attempt=0;attempt<5;attempt++)
+        {
+            await Task.Delay(250);
+            var peek=await PrinterPeekAsync();
+            if(peek?.optionsExpanded==true && peek.optionCount>0)
+                return new(){ok=true,reason="SEARCH_QUERY_OPTIONS_VISIBLE"};
+        }
+        return new(){reason="PRINTER_DROPDOWN_DID_NOT_OPEN"};
+    }
+    private async Task<BrowserResult> PrinterScriptActionAsync(string action,string selection)
+    {
+        var core=_view.CoreWebView2;
+        if(core is null)return new(){reason="WEB_NOT_READY"};
+        var raw=await core.ExecuteScriptAsync(
+            "window.__supraPrinterV1?.perform("+
+            JsonSerializer.Serialize(action)+","+
+            JsonSerializer.Serialize(selection)+") || {ok:false,reason:'NO_PRINTER_SCRIPT'}");
+        return JsonSerializer.Deserialize<BrowserResult>(raw) ??
+            new(){reason="PRINTER_SCRIPT_INVALID"};
+    }
     public async Task<BrowserResult> PrinterActionAsync(string action,string selection="")
     {
         if(!Ready || _view.CoreWebView2 is null)return new(){reason="WEB_NOT_READY"};
@@ -135,12 +222,8 @@ internal sealed class WmsBrowser : UserControl
         {
             var core=_view.CoreWebView2;
             await core.ExecuteScriptAsync(WmsPrinterSetupJs.Script);
-            var raw=await core.ExecuteScriptAsync(
-                "window.__supraPrinterV1?.perform("+
-                JsonSerializer.Serialize(action)+","+
-                JsonSerializer.Serialize(selection)+") || {ok:false,reason:'NO_PRINTER_SCRIPT'}");
-            return JsonSerializer.Deserialize<BrowserResult>(raw) ??
-                new(){reason="PRINTER_SCRIPT_INVALID"};
+            if(action=="EXPAND")return await PrinterNativeExpandAsync();
+            return await PrinterScriptActionAsync(action,selection);
         }
         catch
         {
@@ -153,6 +236,7 @@ internal sealed class WmsBrowser : UserControl
         _temChanMode=temChan;
         _temChanRouting=temChan;
         _temChanRedirects=0;
+        _lastTemChanRouteAt=DateTime.MinValue;
         _startupRouting=!temChan;
         _startupRedirects=0;
         if(Ready && _view.CoreWebView2 is not null)
@@ -289,7 +373,7 @@ internal sealed class WmsBrowser : UserControl
                      destination.AbsolutePath.Contains("/login",StringComparison.OrdinalIgnoreCase))))
                     LoginRequired?.Invoke();
                 TryNavigatePackingAfterLogin();
-                TryNavigateTemChanListAfterLogin();
+                await TryNavigateTemChanListAfterLoginAsync();
             };
             core.ProcessFailed+=(_,_)=>{Ready=false;_storage.Trace("WEB","PROCESS_FAILED","ERROR");};
             core.NewWindowRequested+=(_,e)=>{
