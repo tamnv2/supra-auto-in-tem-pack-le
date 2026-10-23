@@ -69,7 +69,8 @@ internal sealed class TemChanPanel : UserControl
         wrap.Controls.Add(_steps);
         shell.Controls.Add(wrap,0,4);
         Controls.Add(shell);
-        HandleCreated+=(_,_)=>FocusSo();
+        // No BeginInvoke in HandleCreated: native handles may be torn down while
+        // the tab is added/removed during startup or an operation switch.
         _so.KeyDown += async (_,e) => {
             if(e.KeyCode==Keys.Enter) { e.SuppressKeyPress=true; await RunAsync(); }
         };
@@ -91,15 +92,24 @@ internal sealed class TemChanPanel : UserControl
 
     public void FocusSo()
     {
-        // A tab can be inserted/selected before this UserControl has its first
-        // native HWND. Calling BeginInvoke on it then throws InvalidOperationException
-        // and used to show the generic "Lỗi giao diện" modal.
-        if(_busy||_uncertain||IsDisposed || !IsHandleCreated || !Visible)return;
-        BeginInvoke(new Action(() => {
-            if(!IsDisposed && IsHandleCreated && Visible &&
-               !_busy && !_uncertain && _so.Enabled && _so.IsHandleCreated)
-            {_so.Focus();_so.SelectAll();}
-        }));
+        // Only focus synchronously when the SO input can accept focus.
+        // Queued BeginInvoke callbacks outliving a removed/recreated TabPage
+        // caused intermittent UI exceptions even after the first v1.8.1 guard.
+        if(_busy||_uncertain||IsDisposed||Disposing||!Visible||!IsHandleCreated)return;
+        try
+        {
+            if(_so.IsDisposed||!_so.IsHandleCreated||!_so.CanFocus||!_so.Enabled)return;
+            _so.Focus();
+            _so.SelectAll();
+        }
+        catch(ObjectDisposedException)
+        {
+            // The active tab was disposed as the focus notification arrived.
+        }
+        catch(InvalidOperationException)
+        {
+            // Tab is changing; the next activation will focus the SO input.
+        }
     }
     public void UpdateBrowserButton()
     {
@@ -132,7 +142,8 @@ internal sealed class TemChanPanel : UserControl
             await Task.Delay(360);
         }
         throw new TemChanStop(stage+" không đạt yêu cầu trong "+seconds+
-            " giây. "+(last?.reason??"WMS_NOT_READY"));
+            " giây. "+(last?.reason??"WMS_NOT_READY")+
+            " (nút in="+(last?.printCount??0)+", tab="+(last?.tabSelected==true?"đã chọn":"chưa chọn")+").");
     }
     private async Task ExecuteAsync(string action,string so)
     {
@@ -163,12 +174,12 @@ internal sealed class TemChanPanel : UserControl
             await ExecuteAsync("TAB",so);
             await WaitAsync(so,x=>x.tabSelected,"Mở THÔNG TIN KIỆN HÀNG",15);
             Step("Đã chọn tab THÔNG TIN KIỆN HÀNG.");
-            p=await WaitAsync(so,x=>x.printCount>0,"Tìm nút in tại dòng kiện",20);
-            if(p.printCount!=1)throw new TemChanStop(
-                "Danh sách có "+p.printCount+" nút in. Chưa xác định chính xác kiện hàng cần in.");
+            p=await WaitAsync(so,x=>x.statusValid && x.tabSelected &&
+                x.printCount==1,"WMS ổn định / nút in kiện hàng",25);
+            Step("WMS đã xác nhận trạng thái, tab kiện hàng và đúng một nút in.");
             await ExecuteAsync("OPEN_PRINT",so);
             p=await WaitAsync(so,x=>x.dialogOpen,"Mở Tùy chọn in nhãn",15);
-            if(!p.rangeValid)throw new TemChanStop("Số thùng không hợp lệ: "+p.reason+
+            if(!p.rangeValid)throw new TemChanStop("Số thùng không hợp lệ: "+p.dialogReason+
                 ". Số thùng bắt đầu/kết thúc và tổng số thùng phải là số nguyên dương, "+
                 "không vượt phạm vi.");
             Step("Phạm vi hợp lệ: "+p.begin+"–"+p.finish+" / "+p.total+" thùng.");

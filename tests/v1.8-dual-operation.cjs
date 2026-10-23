@@ -23,6 +23,8 @@ assert.match(form, /BuildOperationSettings/);
 assert.match(form, /SwitchOperation/);
 assert.match(browser, /details\/"/);
 assert.match(panel, /_so\.KeyDown/);
+assert.doesNotMatch(panel, /BeginInvoke\(new Action/);
+assert.match(script,/dialogReason/);
 assert.doesNotMatch(panel, /TryAppendHistory|HistoryRow|ExportXlsx|SaveHistory/);
 
 function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
@@ -72,7 +74,8 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
     querySelectorAll:q=>{
       if(q==='[role="tab"],.mat-tab-label')return [tab];
       if(q==='button')return rows;
-      if(q==='mat-dialog-container,[role="dialog"]')return dialogOpen?[dialog]:[];
+      if(q==='mat-dialog-container')return dialogOpen?[dialog]:[];
+      if(q==='[role="dialog"]')return dialogOpen?[dialog]:[];
       return [];
     }
   };
@@ -91,6 +94,9 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
 {
   const f=fixture();
   assert.equal(f.api.peek(f.so).statusValid,true);
+  // A closed dialog must NOT overwrite the top-level valid SO state.
+  assert.equal(f.api.peek(f.so).reason,'OK');
+  assert.equal(f.api.peek(f.so).dialogReason,'PRINT_DIALOG_ABSENT');
   assert.equal(f.api.perform('TAB',f.so).ok,true);
   assert.equal(f.api.perform('OPEN_PRINT',f.so).ok,true);
   assert.equal(f.api.peek(f.so).rangeValid,true);
@@ -120,7 +126,9 @@ for(const total of ['1.5','0','-2']){
 {
   const f=fixture({status:'Đang đóng gói'});
   assert.equal(f.api.peek(f.so).statusValid,false);
-  assert.equal(f.api.perform('TAB',f.so).ok,false);
+  assert.equal(f.api.peek(f.so).reason,'STATUS_NOT_READY');
+  assert.equal(f.api.perform('TAB',f.so).reason,'STATUS_NOT_READY');
+  assert.equal(f.api.perform('OPEN_PRINT',f.so).reason,'STATUS_NOT_READY');
 }
 {
   const f=fixture({prints:2});

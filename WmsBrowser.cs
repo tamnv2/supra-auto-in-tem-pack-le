@@ -60,6 +60,7 @@ internal sealed class TemChanPeek
     public int printCount {get;set;}
     public bool dialogOpen {get;set;}
     public bool rangeValid {get;set;}
+    public string dialogReason {get;set;}="";
     public int total {get;set;}
     public int begin {get;set;}
     public int finish {get;set;}
