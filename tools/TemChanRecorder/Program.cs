@@ -27,7 +27,7 @@ internal sealed class RecorderForm : Form
     private readonly Button _stop = new() { Text = "KẾT THÚC · LƯU DESKTOP", Width = 230, Height = 40, Enabled = false };
     private readonly Label _status = new() { AutoSize = true, Text = "Đang khởi tạo trình duyệt WMS..." };
     private readonly Label _count = new() { AutoSize = true, Text = "0 sự kiện" };
-    private readonly Timer _ticker = new() { Interval = 600 };
+    private readonly System.Windows.Forms.Timer _ticker = new() { Interval = 600 };
     private readonly ActionLog _log = new();
     private readonly string _profilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -71,17 +71,8 @@ internal sealed class RecorderForm : Form
         _ticker.Tick += (_, _) => _count.Text = _log.Count + " sự kiện";
         _ticker.Start();
         Shown += async (_, _) => await InitializeBrowserAsync();
-        FormClosing += (_, _) => {
-            if (_log.Active || _busy)
-            {
-                MessageBox.Show("Hãy bấm KẾT THÚC để xuất log trước khi đóng.",
-                    "Đang ghi thao tác", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                // Preserve the session instead of silently discarding recorded events.
-                if (_log.Active || _busy) { /* handled below through CancelEventArgs */ }
-            }
-        };
         FormClosing += (_, e) => {
-            if (_log.Active || _busy) e.Cancel = true;
+            if (_log.Active || _busy) { e.Cancel = true; MessageBox.Show("Bấm KẾT THÚC để lưu log trước khi đóng.", "Đang ghi thao tác", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         };
     }
 
