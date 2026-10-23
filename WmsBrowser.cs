@@ -134,6 +134,8 @@ internal sealed class WmsBrowser : UserControl
         }
         catch{return;}
         if(authenticated!="true" || !_temChanMode || !_temChanRouting ||
+           _temChanRedirects>=3 ||
+           DateTime.UtcNow-_lastTemChanRouteAt<TimeSpan.FromSeconds(3) ||
            !string.Equals(core.Source,uri.AbsoluteUri,StringComparison.OrdinalIgnoreCase))return;
         _temChanRedirects++;
         _lastTemChanRouteAt=DateTime.UtcNow;
