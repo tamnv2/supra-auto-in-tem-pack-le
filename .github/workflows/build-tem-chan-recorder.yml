@@ -1,0 +1,60 @@
+name: Build In Tem Chan DOM Recorder Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/TemChanRecorder/**'
+      - '.github/workflows/build-tem-chan-recorder.yml'
+      - 'docs/TEM_CHAN_RECORDER_TEST_2026-10-23.md'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/TemChanRecorder/**'
+      - '.github/workflows/build-tem-chan-recorder.yml'
+      - 'docs/TEM_CHAN_RECORDER_TEST_2026-10-23.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-tem-chan-recorder:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: JS syntax and privacy regressions
+        shell: pwsh
+        run: |
+          node --check 'tools/TemChanRecorder/dom-recorder.js'
+          if ($LASTEXITCODE -ne 0) { throw 'INVALID_RECORDER_JS' }
+          node 'tools/TemChanRecorder/check-recorder.cjs'
+          if ($LASTEXITCODE -ne 0) { throw 'RECORDER_SECURITY_TEST_FAILED' }
+      - name: Publish standalone Windows x64 single-file EXE
+        shell: pwsh
+        run: |
+          dotnet restore 'tools/TemChanRecorder/TemChanRecorder.csproj'
+          if ($LASTEXITCODE -ne 0) { throw 'RESTORE_FAILED' }
+          dotnet publish 'tools/TemChanRecorder/TemChanRecorder.csproj' -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -o 'out/tem-chan-recorder'
+          if ($LASTEXITCODE -ne 0) { throw 'BUILD_FAILED' }
+          if (!(Test-Path 'out/tem-chan-recorder/SUPRA-InTemChan-Recorder-TEST.exe')) { throw 'EXE_NOT_FOUND' }
+      - name: Package test ZIP and SHA256
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force 'out/artifacts' | Out-Null
+          Compress-Archive -Path 'out/tem-chan-recorder/*' -DestinationPath 'out/artifacts/SUPRA-InTemChan-Recorder-TEST-win-x64.zip' -Force
+          $sha = (Get-FileHash 'out/artifacts/SUPRA-InTemChan-Recorder-TEST-win-x64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha  SUPRA-InTemChan-Recorder-TEST-win-x64.zip" | Set-Content -Encoding ascii 'out/artifacts/SUPRA-InTemChan-Recorder-TEST-win-x64.zip.sha256'
+      - name: Upload Windows test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SUPRA-InTemChan-Recorder-TEST-win-x64
+          path: out/artifacts/*
+          retention-days: 30
+          if-no-files-found: error
