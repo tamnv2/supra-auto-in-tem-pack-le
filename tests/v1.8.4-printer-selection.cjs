@@ -6,6 +6,7 @@ const script=src.split('"""')[1];
 const main=fs.readFileSync('MainForm.cs','utf8');
 const even=fs.readFileSync('TemChanPanel.cs','utf8');
 const coordinator=fs.readFileSync('WmsPrinterCoordinator.cs','utf8');
+const browser=fs.readFileSync('WmsBrowser.cs','utf8');
 assert.ok(script);
 assert.doesNotMatch(script,/21-1129-D29|TARGET_PRINTER/);
 assert.doesNotMatch(script,/document\.cookie|localStorage|sessionStorage|password\.value/);
@@ -21,6 +22,12 @@ assert.match(script,/blockingDialogCount/);
 assert.match(script,/f\.focus\(\)/);
 assert.match(script,/f\.dispatchEvent\(new Event\('input'/);
 assert.match(script,/f\.value\s*!==\s*''/);
+assert.match(script,/pointerTarget/);
+assert.match(script,/getBoundingClientRect/);
+assert.match(browser,/CallDevToolsProtocolMethodAsync\("Input\.dispatchMouseEvent"/);
+assert.match(browser,/SO_LIST_AUTHENTICATED/);
+assert.match(browser,/p\.accountTriggerCount==1/);
+assert.match(coordinator,/TryNavigateTemChanListAfterLoginAsync/);
 assert.match(coordinator,/Always select an actual/);
 assert.match(coordinator,/ActionAsync\(browser,active,"CLOSE",choice\)/);
 
@@ -30,6 +37,8 @@ function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)'
   const make=(name,click=()=>{})=>({
     tagName:'BUTTON',innerText:name,textContent:name,disabled:false,isConnected:true,
     getClientRects:()=>[1],getAttribute:()=>null,click,
+    getBoundingClientRect:()=>({left:100,top:150,width:300,height:35}),
+    contains:el=>el===this,
     closest:()=>null,querySelectorAll:()=>[]
   });
   const input=make('');
@@ -60,6 +69,7 @@ function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)'
   const accountButton=make('',()=>{account=true;});
   const menu=make('printer Thiết lập máy in',()=>{account=false;modal=true;input.value=saved;current=saved;expanded=false;});
   const doc={
+    elementFromPoint:()=>input,
     querySelector:q=>{
       const result=doc.querySelectorAll(q);
       return result.length?result[0]:null;
@@ -88,6 +98,7 @@ for(const page of ['/sft3/app/saleorder/list','/sft3/app/saleorder/packing']){
   assert.equal(api.peek().settingsVisible,true);
   assert.equal(api.perform('PRINTER_MENU').ok,true);
   assert.equal(api.peek().currentPrinter,'21-1129-D28 (Online)');
+  assert.equal(api.pointerTarget('EXPAND').ok,true);
   assert.equal(api.peek().options.length,0);
   assert.equal(api.perform('EXPAND').ok,true);
   assert.equal(api.peek().currentPrinter,'');
