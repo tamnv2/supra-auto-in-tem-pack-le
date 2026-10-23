@@ -158,6 +158,24 @@ public sealed class MainForm : Form
             _browser.Terminate();
         };
     }
+    internal static int RunModeTransitionSmoke()
+    {
+        // Windows CI exercises the actual TabControl transitions without WMS
+        // navigation or printing. This catches pre-HWND BeginInvoke regressions.
+        using var form=new MainForm();
+        _=form.Handle;
+        form.SwitchOperation(true,true);
+        if(form._tabs.SelectedTab!=form._temChanTab)return 11;
+        form._tabs.SelectedTab=form._settingsTab;
+        form.SwitchOperation(false);
+        if(form._tabs.SelectedTab!=form._operationTab)return 12;
+        form._tabs.SelectedTab=form._settingsTab;
+        form.SwitchOperation(true);
+        if(form._tabs.SelectedTab!=form._temChanTab)return 13;
+        form._temChanPanel?.FocusSo();
+        return 0;
+    }
+
     private Form BuildStartupChoice()
     {
         var choice=new Form {
