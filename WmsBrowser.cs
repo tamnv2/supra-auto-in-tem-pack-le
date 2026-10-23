@@ -154,8 +154,9 @@ internal sealed class WmsBrowser : UserControl
                 ") || {ok:false,reason:'NO_PRINTER_SCRIPT'}");
             return JsonSerializer.Deserialize<PrinterSetupPeek>(raw);
         }
-        catch
+        catch(Exception ex)
         {
+            _storage.TraceException("PRINTER","PEEK_EXCEPTION",ex);
             _storage.Trace("PRINTER","PEEK_FAILED","ERROR");
             return null;
         }
@@ -263,8 +264,9 @@ internal sealed class WmsBrowser : UserControl
                     result.ok?"":safeReason);
             return result;
         }
-        catch
+        catch(Exception ex)
         {
+            _storage.TraceException("PRINTER","ACTION_EXCEPTION",ex);
             _storage.Trace("PRINTER","ACTION_FAILED","ERROR");
             return new(){reason="PRINTER_SCRIPT_CALL_FAILED"};
         }
@@ -301,7 +303,11 @@ internal sealed class WmsBrowser : UserControl
                 ") || {ok:false,reason:'SCRIPT_MISSING'}");
             return JsonSerializer.Deserialize<TemChanPeek>(result);
         }
-        catch{return null;}
+        catch(Exception ex)
+        {
+            _storage.TraceException("EVEN","PEEK_EXCEPTION",ex);
+            return null;
+        }
     }
     public async Task<BrowserResult> TemChanPerformAsync(string action,string so)
     {
@@ -314,9 +320,15 @@ internal sealed class WmsBrowser : UserControl
             var result=await core.ExecuteScriptAsync(
                 "window.__supraTemChanV1?.perform("+JsonSerializer.Serialize(action)+","+
                 JsonSerializer.Serialize(so)+") || {ok:false,reason:'SCRIPT_MISSING'}");
-            return JsonSerializer.Deserialize<BrowserResult>(result)??new(){reason="INVALID_RESULT"};
+            var parsed=JsonSerializer.Deserialize<BrowserResult>(result)??new(){reason="INVALID_RESULT"};
+            _storage.Trace("EVEN","WMS_ACTION_"+action,parsed.ok?"DONE":"BLOCKED");
+            return parsed;
         }
-        catch{return new(){reason="ACTION_DISPATCH_UNCERTAIN"};}
+        catch(Exception ex)
+        {
+            _storage.TraceException("EVEN","ACTION_EXCEPTION",ex);
+            return new(){reason="ACTION_DISPATCH_UNCERTAIN"};
+        }
     }
     private readonly WebView2 _view=new(){Dock=DockStyle.Fill};
     private readonly LocalStore _storage;
