@@ -106,6 +106,13 @@ internal static class WmsPrinterCoordinator
         if(!scanned.options.Contains(choice,StringComparer.Ordinal))
             throw new InvalidOperationException("Máy in không thuộc danh sách vừa quét.");
         progress("Đang chọn và xác minh: "+choice);
+        // Showing the native WinForms chooser transfers focus away from WebView2.
+        // Angular may close the autocomplete on blur; reopen it after the owner
+        // chooses, even when WMS had displayed options before ShowDialog().
+        await ActionAsync(browser,active,"EXPAND");
+        await WaitAsync(browser,active,
+            p=>p.printerDialog && p.optionsExpanded && p.optionCount>0,
+            "Không mở lại được danh sách sau khi chọn máy in",12);
         // EXPAND clears only the Angular search text. Always select an actual
         // WMS option, including when the operator chooses the previous printer.
         // Otherwise the input remains empty and Close cannot verify readback.
