@@ -46,7 +46,7 @@ internal static class WmsPrinterCoordinator
         while(true)
         {
             EnsureActive(active);
-            browser.TryNavigateTemChanListAfterLogin();
+            await browser.TryNavigateTemChanListAfterLoginAsync();
             var p=await browser.PrinterPeekAsync();
             // A valid URL alone does not establish login: WMS may show the SSO
             // UI or be hydrating Angular on the same route. Wait for the actual
