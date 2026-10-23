@@ -79,16 +79,15 @@ public sealed class MainForm : Form
         {
             if(_temChanMode)
             {
-                // Manual login is already awaited by the running setup.
-                if(_activeTemChanPrinterSetupGeneration==_printerSetupGeneration)
-                {
-                    _browser.Reveal();
-                    return;
-                }
+                // A fresh SSO login revokes the former readiness acknowledgment.
+                // The user chooses when to confirm readiness again; do not open
+                // an automatic printer modal while logging in.
+                ++_printerSetupGeneration;
                 _temChanPanel?.SetPrinterReady(false);
-                var generation=++_printerSetupGeneration;
+                _temChanPanel?.PrinterProgress(
+                    "Đăng nhập WMS, kiểm tra máy in rồi bấm SUPRA SẴN SÀNG.");
+                _store.Trace("EVEN","LOGIN_REQUIRES_MANUAL_READY","WAIT");
                 _browser.Reveal();
-                _=RunTemChanPrinterSetupAsync(generation);
                 return;
             }
             if(!_setupDone||IsDisposed||_resettingBrowser)return;
@@ -144,14 +143,11 @@ public sealed class MainForm : Form
                 }
                 else
                 {
+                    // In tem chẵn defaults to operator acknowledgment. Automatic
+                    // printer selection remains optional via Settings → Retry.
                     _temChanPanel?.UpdateBrowserButton();
-                    // LoginRequired may have started a setup before Initialize
-                    // returned. Avoid two competing runs on the same WMS modal.
-                    if(_activeTemChanPrinterSetupGeneration!=_printerSetupGeneration)
-                    {
-                        var generation=++_printerSetupGeneration;
-                        _=RunTemChanPrinterSetupAsync(generation);
-                    }
+                    _temChanPanel?.PrinterProgress(
+                        "Đăng nhập WMS và bấm SUPRA SẴN SÀNG để nhập SO.");
                 }
             }
             catch
@@ -230,6 +226,22 @@ public sealed class MainForm : Form
             form.SwitchOperation(true);
             Application.DoEvents();
             if(form._tabs.SelectedTab!=form._temChanTab)return 13;
+            // Exercise the exact handler used after a confirmed operator click,
+            // without presenting a modal dialog in CI or issuing WMS commands.
+            var approve=typeof(TemChanPanel).GetMethod("AcceptManualReady",
+                System.Reflection.BindingFlags.Instance|
+                System.Reflection.BindingFlags.NonPublic);
+            if(approve==null)return 15;
+            approve.Invoke(form._temChanPanel,null);
+            Application.DoEvents();
+            if(form._temChanPanel?.PrinterReady!=true||
+               form._temChanPanel?.OperatorReady!=true)return 16;
+            form.SwitchOperation(false);
+            Application.DoEvents();
+            if(form._temChanPanel?.PrinterReady==true)return 17;
+            form.SwitchOperation(true);
+            Application.DoEvents();
+            if(form._temChanPanel?.PrinterReady==true)return 18;
             form._temChanPanel?.FocusSo();
             Application.DoEvents();
             form.Close();
@@ -360,8 +372,8 @@ public sealed class MainForm : Form
         if(!initial && temChan==_temChanMode)
         {
             _tabs.SelectedTab=temChan?_temChanTab:_operationTab;
-            if(temChan && _temChanPanel?.PrinterReady!=true && _browser.Ready)
-                _=RunTemChanPrinterSetupAsync(++_printerSetupGeneration);
+            // In tem chẵn manual readiness is available immediately; there is
+            // no mandatory printer-setup loop when revisiting this tab.
             if(!temChan && !_setupDone && !_setupRunning && _browser.Ready)
                 _setupTask=RunInitialSetupAsync();
             return;
@@ -407,8 +419,10 @@ public sealed class MainForm : Form
             _switchingOperation=false;
         }
         if(!temChan && _browser.Ready)_setupTask=RunInitialSetupAsync();
-        if(temChan && !initial && _browser.Ready)
-            _=RunTemChanPrinterSetupAsync(_printerSetupGeneration);
+        // Do not gate access to SO behind automatic WMS printer selection.
+        if(temChan)
+            _temChanPanel?.PrinterProgress(
+                "Kiểm tra WMS thủ công rồi bấm SUPRA SẴN SÀNG.");
         Text="WMS Packing & Productivity Assistant | "+
             (temChan?"IN TEM CHẴN":"IN TEM LẺ AUTO")+" | "+Application.ProductVersion;
         UpdateControls();
@@ -573,7 +587,8 @@ public sealed class MainForm : Form
         _webTab.Controls.Add(browserLayout);
         _productionTab.Controls.Add(BuildProductionTab());
         _aboutTab.Controls.Add(BuildAboutTab());
-        _temChanPanel=new TemChanPanel(_browser,ShowBrowser,HideBrowser,_store);
+        _temChanPanel=new TemChanPanel(_browser,ShowBrowser,HideBrowser,_store,
+            OnEvenManualReadyAcknowledged);
         _temChanTab.Controls.Add(_temChanPanel);
         _settingsTab.Controls.Add(BuildOperationSettings());
         _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab,_settingsTab]);
@@ -884,7 +899,9 @@ public sealed class MainForm : Form
             // No operation or business record is removed.
             if(_setupTask!=null)await _setupTask;
             await _browser.ClearBrowsingDataAsync();
-            if(_temChanMode)_=RunTemChanPrinterSetupAsync(++_printerSetupGeneration);
+            if(_temChanMode)
+                _temChanPanel?.PrinterProgress(
+                    "Đăng nhập lại WMS rồi bấm SUPRA SẴN SÀNG.");
             _browser.Reveal();
             Status("INIT","Đã xóa dữ liệu trình duyệt. Hãy đăng nhập WMS để thiết lập lại.");
             MessageBox.Show(this,"Đã xóa dữ liệu duyệt web của ứng dụng. Lịch sử và nhân sự được giữ nguyên.",
@@ -908,6 +925,15 @@ public sealed class MainForm : Form
                     _setupTask=RunInitialSetupAsync();
             }
         }
+    }
+
+    private void OnEvenManualReadyAcknowledged()
+    {
+        // No automatic printer chooser can later overwrite the operator's
+        // explicit acknowledgment. This does NOT assert printer verification.
+        ++_printerSetupGeneration;
+        _verifiedPrinter="";
+        _store.Trace("PRINTER","EVEN_MANUAL_OVERRIDE","DONE");
     }
 
     private static string PrinterProgressCode(string message)
