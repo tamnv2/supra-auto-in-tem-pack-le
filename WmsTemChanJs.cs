@@ -38,18 +38,16 @@ internal static class WmsTemChanJs
           const el = node.parentElement;
           if (!visible(el) || ['SCRIPT','STYLE'].includes(el.tagName)) continue;
           if (norm(node.textContent).replace(/:$/,'') === norm(label).replace(/:$/,'')) {
-            const parent = el.closest('tr,[role="row"],.row,.flex-row') || el.parentElement;
             const candidates = [];
             let candidate = walker.nextNode();
             while (candidate && candidates.length < 3) {
               if (candidate.parentElement && visible(candidate.parentElement)) {
                 const txt = compact(candidate.textContent);
-                if (txt) candidates.push({txt,within:!!parent && parent.contains(candidate)});
+                if (txt) candidates.push(txt);
               }
               candidate = walker.nextNode();
             }
-            const first = candidates[0];
-            matches.push(first && first.within ? first.txt : null);
+            matches.push(candidates.length ? candidates[0] : null);
           }
         }
         return matches.length === 1 ? matches[0] : null;
