@@ -110,6 +110,27 @@ internal static class WmsPrinterSetupJs
         syncCache();
         return {ok:true};
       };
+      // Locate the input by its unique printer-modal context and role, then
+      // verify the current hit target before issuing a trusted Chromium click.
+      // No dynamic Angular IDs, indexes or hard-coded screen coordinates.
+      const pointerTarget = action => {
+        if(!validRoute() || action!=='EXPAND')
+          return {ok:false,reason:'POINTER_ACTION_NOT_ALLOWED'};
+        const f=field();
+        if(!dialog() || !enabled(f))
+          return {ok:false,reason:'PRINTER_FIELD_NOT_READY'};
+        if(f.tagName==='SELECT')return {ok:false,reason:'NATIVE_SELECT'};
+        if(f.tagName!=='INPUT' || f.getAttribute('role')!=='combobox')
+          return {ok:false,reason:'PRINTER_COMBOBOX_NOT_UNIQUE'};
+        const r=f.getBoundingClientRect();
+        if(!(r.width>8 && r.height>8))
+          return {ok:false,reason:'PRINTER_INPUT_NOT_VISIBLE'};
+        const x=r.left+r.width/2, y=r.top+r.height/2;
+        const hit=document.elementFromPoint(x,y);
+        if(!(hit===f || f.contains(hit)))
+          return {ok:false,reason:'PRINTER_POINTER_HIT_MISMATCH'};
+        return {ok:true,x,y};
+      };
       const confirm = () => {
         const d=dialog();
         return d?unique(buttons(d).filter(el=>label(el)==='Xác nhận')):null;
@@ -203,7 +224,7 @@ internal static class WmsPrinterSetupJs
         }
         return {ok:false,reason:'UNKNOWN_PRINTER_ACTION'};
       };
-      window.__supraPrinterV1={peek,perform};
+      window.__supraPrinterV1={peek,perform,pointerTarget};
     })();
     """;
 }
