@@ -308,6 +308,7 @@ public sealed class MainForm : Form
         retryPrinter.Dock=DockStyle.Fill;technicalLog.Dock=DockStyle.Fill;
         retryPrinter.Margin=new Padding(4);technicalLog.Margin=new Padding(4);
         retryPrinter.Click+=(_,_)=>{
+            _store.Trace("PRINTER","RETRY_BUTTON_CLICK","WAIT");
             if(_busy||_setupRunning||_resettingBrowser||_browser.Recording ||
                 _temChanPanel?.IsBusy==true||_temChanPanel?.NeedsManualReview==true ||
                 _needsRecovery)
@@ -552,8 +553,14 @@ public sealed class MainForm : Form
         _traceStop.BackColor=Color.FromArgb(177,66,55);
         _traceStart.Font=new Font("Segoe UI",9,FontStyle.Bold);
         _traceStop.Font=new Font("Segoe UI",9,FontStyle.Bold);
-        _traceStart.Click+=async (_,_)=>await StartTraceAsync();
-        _traceStop.Click+=async (_,_)=>await StopTraceAsync();
+        _traceStart.Click+=async (_,_)=>{
+            _store.Trace("APP","RECORDER_START_CLICK","WAIT");
+            await StartTraceAsync();
+        };
+        _traceStop.Click+=async (_,_)=>{
+            _store.Trace("APP","RECORDER_EXPORT_CLICK","WAIT");
+            await StopTraceAsync();
+        };
         browserHeader.Controls.Add(_traceStart,1,0);
         browserHeader.Controls.Add(_traceStop,2,0);
         var hideFromWeb=MakeButton("ẨN TRÌNH DUYỆT",198);
@@ -573,6 +580,12 @@ public sealed class MainForm : Form
         _tabs.SelectedTab=_webTab; // Visible on the very first frame, before async login begins.
         _tabs.SelectedIndexChanged+=(_,_)=>{
             if(_switchingOperation)return;
+            // Only known tab IDs, never user or browser data.
+            _store.Trace("APP","TAB_CHANGED","DONE",0,
+                "TAB="+(_tabs.SelectedTab==_temChanTab?1:
+                    _tabs.SelectedTab==_operationTab?2:
+                    _tabs.SelectedTab==_webTab?3:
+                    _tabs.SelectedTab==_settingsTab?4:5));
             UpdateBrowserToggle();
             if(_tabs.SelectedTab==_productionTab)
                 RefreshProduction(_store.FilterHistory(DateTime.Today,DateTime.Today));
