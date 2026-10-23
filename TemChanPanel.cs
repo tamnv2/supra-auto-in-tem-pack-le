@@ -26,6 +26,13 @@ internal sealed class TemChanPanel : UserControl
     private static readonly Regex SoFormat = new("^[A-Z0-9_-]{5,50}$",RegexOptions.Compiled);
     private bool _busy;
     private bool _printerReady;
+    public bool PrinterReady=>_printerReady;
+    public void PrinterProgress(string message)
+    {
+        if(IsDisposed)return;
+        _state.Text="THIẾT LẬP MÁY IN · "+message;
+        Step(message);
+    }
     public void SetPrinterReady(bool ready,string printer="")
     {
         _printerReady=ready;
