@@ -574,8 +574,9 @@ internal sealed class WmsBrowser : UserControl
             }
             return result;
         }
-        catch
+        catch(Exception ex)
         {
+            _storage.TraceException("SETUP","SETUP_PEEK_EXCEPTION",ex);
             _storage.Trace("SETUP","SETUP_PEEK_FAILED","ERROR");
             return null;
         }
@@ -590,7 +591,11 @@ internal sealed class WmsBrowser : UserControl
             var raw=await _view.CoreWebView2.ExecuteScriptAsync(script);
             return JsonSerializer.Deserialize<BrowserResult>(raw)??new(){reason="INVALID_SCRIPT_RESULT"};
         }
-        catch { return new(){reason="SCRIPT_CALL_FAILED"}; }
+        catch(Exception ex)
+        {
+            _storage.TraceException("SETUP","SETUP_ACTION_EXCEPTION",ex);
+            return new(){reason="SCRIPT_CALL_FAILED"};
+        }
     }
     public async Task<BrowserPeek?> PeekAsync()
     {
@@ -601,7 +606,11 @@ internal sealed class WmsBrowser : UserControl
                 "window.__supraPackLeV1?.peek() || {ok:false,reason:'NO_SCRIPT'}");
             return JsonSerializer.Deserialize<BrowserPeek>(raw);
         }
-        catch{return null;}
+        catch(Exception ex)
+        {
+            _storage.TraceException("LOOSE","PEEK_EXCEPTION",ex);
+            return null;
+        }
     }
     public async Task<BrowserResult> PerformAsync(string action,string? value=null)
     {
@@ -614,7 +623,11 @@ internal sealed class WmsBrowser : UserControl
             var raw=await _view.CoreWebView2.ExecuteScriptAsync(script);
             return JsonSerializer.Deserialize<BrowserResult>(raw)??new(){reason="INVALID_SCRIPT_RESULT"};
         }
-        catch{return new(){reason="SCRIPT_CALL_FAILED"};}
+        catch(Exception ex)
+        {
+            _storage.TraceException("LOOSE","ACTION_EXCEPTION",ex);
+            return new(){reason="SCRIPT_CALL_FAILED"};
+        }
     }
     public async Task EnterAsync()
     {
