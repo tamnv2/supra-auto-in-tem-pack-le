@@ -20,7 +20,7 @@ assert.match(main,/_activeTemChanPrinterSetupGeneration/);
 assert.match(script,/blockingDialogCount/);
 assert.match(script,/f\.focus\(\)/);
 assert.match(script,/f\.dispatchEvent\(new Event\('input'/);
-assert.match(script,/f\.value!==''/);
+assert.match(script,/f\.value\s*!==\s*''/);
 assert.match(coordinator,/Always select an actual/);
 assert.match(coordinator,/ActionAsync\(browser,active,"CLOSE",choice\)/);
 
