@@ -30,6 +30,7 @@ internal static class WmsPrinterSetupJs
         .filter(el => !el.parentElement?.closest('mat-dialog-container,[role="dialog"]'));
       const dialog = () => unique(dialogs().filter(el =>
         clean(el.innerText).toLocaleUpperCase('vi').includes('CHỌN MÁY IN')));
+      const blockingDialogs = () => dialogs().filter(el => el !== dialog());
       const accountTriggers = () => [...document.querySelectorAll(
         'mat-toolbar#app-header app-header > button.mat-menu-trigger.m-r-5')].filter(enabled);
       const menuItems = () => [...document.querySelectorAll(
@@ -76,7 +77,9 @@ internal static class WmsPrinterSetupJs
       const scroller = () => [...document.querySelectorAll(
         '.cdk-overlay-container .cdk-virtual-scroll-viewport,'+
         '.cdk-overlay-container .mat-select-panel,'+
-        '.cdk-overlay-container .mat-mdc-select-panel')]
+        '.cdk-overlay-container .mat-mdc-select-panel,'+
+        '.cdk-overlay-container .mat-autocomplete-panel,'+
+        '.cdk-overlay-container [role="listbox"]')]
         .filter(visible).find(el=>el.scrollHeight>el.clientHeight+2);
       const expanded = () => {
         const f=field();
@@ -102,6 +105,7 @@ internal static class WmsPrinterSetupJs
         const all=[...cache].sort((a,b)=>a.localeCompare(b,'vi'));
         return {
           ok:true,reason:'OK',printerDialog:!!d,fieldReady:!!f,
+          blockingDialogCount:blockingDialogs().length,
           currentPrinter:isPrinter(fieldValue(f))?fieldValue(f):'',
           accountTriggerCount:accountTriggers().length,
           settingsVisible:menuItems().length===1,optionsExpanded:expanded(),
@@ -130,7 +134,14 @@ internal static class WmsPrinterSetupJs
         if (action==='EXPAND') {
           const f=field();
           if (!enabled(f))return {ok:false,reason:'PRINTER_FIELD_NOT_READY'};
-          if (f.tagName !== 'SELECT') {f.click();}
+          if (f.tagName !== 'SELECT') {
+            // DOM click alone does not focus Angular Material autocomplete.
+            // The recorded manual sequence was pointerdown -> focus -> click.
+            f.focus();
+            f.click();
+            if (f.tagName === 'INPUT')
+              f.dispatchEvent(new Event('input',{bubbles:true}));
+          }
           syncCache();
           return {ok:true};
         }
