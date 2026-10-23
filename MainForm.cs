@@ -556,11 +556,14 @@ public sealed class MainForm : Form
             var p=await _browser.PeekAsync();
             if(p?.ready==true)
             {
-                if(!_printerVerified &&
+                if(!_printerVerified)
+                {
                     MessageBox.Show(this,
-                    "Đã kiểm tra trực tiếp quầy SDG.22 và máy in 21-1129-D29 (Online) trên WMS? "+
-                    "Chỉ xác nhận nếu đã kiểm tra bằng tay.",
-                    "Xác nhận thiết lập WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+                        "Chưa chọn và xác minh máy in WMS. Bắt buộc hoàn tất thiết lập "+
+                        "máy in trước khi tiếp tục nghiệp vụ.",
+                        "Chưa thiết lập máy in",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                    return;
+                }
                 _setupDone=true;_needsRecovery=false;_setupRunning=false;
                 _browser.StopStartupRouting();
                 Status("READY","Đã xác nhận màn hình quét Tote và máy in sẵn sàng.");
@@ -801,9 +804,12 @@ public sealed class MainForm : Form
             "XÁC NHẬN XÓA DỮ LIỆU TRÌNH DUYỆT",
             MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
         _resettingBrowser=true;
+        ++_printerSetupGeneration;
+        _temChanPanel?.SetPrinterReady(false);
         _setupRunning=false;
         _setupDone=false;
         _printerVerified=false;
+        _verifiedPrinter="";
         _needsRecovery=false;
         resetButton.Enabled=false;
         UpdateControls();
@@ -814,6 +820,7 @@ public sealed class MainForm : Form
             // No operation or business record is removed.
             if(_setupTask!=null)await _setupTask;
             await _browser.ClearBrowsingDataAsync();
+            if(_temChanMode)_=RunTemChanPrinterSetupAsync(++_printerSetupGeneration);
             _browser.Reveal();
             Status("INIT","Đã xóa dữ liệu trình duyệt. Hãy đăng nhập WMS để thiết lập lại.");
             MessageBox.Show(this,"Đã xóa dữ liệu duyệt web của ứng dụng. Lịch sử và nhân sự được giữ nguyên.",
@@ -1010,12 +1017,12 @@ public sealed class MainForm : Form
                     continue;
                 }
 
-                readyWaits=0;
                 if(!p.packingReady)
                 {
                     if(++readyWaits>8){Manual("PACKING_NOT_READY");break;}
                     continue;
                 }
+                readyWaits=0;
                 if(!_printerVerified)
                 {
                     try
