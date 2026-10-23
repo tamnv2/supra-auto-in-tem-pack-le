@@ -93,11 +93,11 @@ internal static class WmsTemChanJs
           visible(el) && norm(el.innerText).includes('tùy chọn in nhãn')));
       const modalInfo = (so) => {
         const dlg = modal();
-        if (!dlg) return {dialogOpen:false, rangeValid:false, reason:'PRINT_DIALOG_ABSENT'};
+        if (!dlg) return {dialogOpen:false, rangeValid:false, dialogReason:'PRINT_DIALOG_ABSENT'};
         const inputs = [...dlg.querySelectorAll('input[name="startPackage"]')].filter(visible);
         const ends = [...dlg.querySelectorAll('input[name="endPackage"]')].filter(visible);
         if (inputs.length !== 1 || ends.length !== 1)
-          return {dialogOpen:true, rangeValid:false, reason:'PACKAGE_INPUT_AMBIGUOUS'};
+          return {dialogOpen:true, rangeValid:false, dialogReason:'PACKAGE_INPUT_AMBIGUOUS'};
         const m = compact(dlg.innerText).match(/Tổng số thùng:\s*([^ ]+)/i);
         const total = positiveInt(m && m[1]);
         const start = positiveInt(inputs[0].value);
@@ -107,7 +107,7 @@ internal static class WmsTemChanJs
         const valid = !!total && !!start && !!end && start <= end && end <= total && soMatch;
         return {
           dialogOpen:true, rangeValid:valid,
-          reason: !soMatch?'MODAL_SO_MISMATCH':!total?'TOTAL_NOT_INTEGER':
+          dialogReason: !soMatch?'MODAL_SO_MISMATCH':!total?'TOTAL_NOT_INTEGER':
                   !start?'START_NOT_INTEGER':!end?'END_NOT_INTEGER':
                   start>end || end>total?'RANGE_OUT_OF_BOUNDS':'OK',
           // Only aggregate counts, never SO/customer or credentials.
@@ -145,7 +145,8 @@ internal static class WmsTemChanJs
           return {ok:true,reason:'PRINT_DIALOG_REQUESTED'};
         }
         if (name === 'PRINT_LABEL') {
-          if (!p.dialogOpen || !p.rangeValid) return {ok:false,reason:p.reason};
+          if (!p.dialogOpen || !p.rangeValid)
+            return {ok:false,reason:p.dialogReason || 'INVALID_RANGE'};
           const dlg = modal();
           if (!dlg) return {ok:false,reason:'PRINT_DIALOG_ABSENT'};
           const buttons = [...dlg.querySelectorAll('button')]
