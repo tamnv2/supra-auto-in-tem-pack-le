@@ -227,7 +227,7 @@ public sealed class MainForm : Form
 
     private void SwitchOperation(bool temChan,bool initial=false)
     {
-        if(!initial && (_busy || _temChanPanel?.IsBusy==true ||
+        if(!initial && (_busy || _setupRunning || _temChanPanel?.IsBusy==true ||
             _temChanPanel?.NeedsManualReview==true || _browser.Recording ||
             _resettingBrowser || _needsRecovery))
         {
@@ -681,7 +681,7 @@ public sealed class MainForm : Form
 
     private async Task ResetBrowserAsync(Button resetButton)
     {
-        if(_busy)
+        if(_busy || _temChanPanel?.IsBusy==true)
         {
             MessageBox.Show(this,"Không thể xóa dữ liệu trình duyệt khi đang xử lý Tote.",
                 "Đang xử lý",MessageBoxButtons.OK,MessageBoxIcon.Warning);
