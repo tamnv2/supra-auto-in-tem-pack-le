@@ -1,4 +1,4 @@
-// SUPRA Tem Chan test recorder. Never read input.value, storage, cookies, network or coordinates.
+// SUPRA Tem Chan test recorder. No field values, storage, cookies, network traffic or coordinates.
 (() => {
   'use strict';
   if (window.__supraTemChanRecorder) return;
@@ -81,7 +81,7 @@
     const name = safeAttribute(el, 'name');
     const aria = safeAttribute(el, 'aria-label');
     const title = safeAttribute(el, 'title');
-    if (testId) candidates.push('[data-testid="' + escaped(testId) + '"]');
+    if (testId) candidates.push('[' + (el.hasAttribute('data-testid') ? 'data-testid' : 'data-test') + '="' + escaped(testId) + '"]');
     if (id) candidates.push('#' + escaped(id));
     if (formControlName) candidates.push(tag + '[formcontrolname="' + escaped(formControlName) + '"]');
     if (name) candidates.push(tag + '[name="' + escaped(name) + '"]');
@@ -111,7 +111,7 @@
     return origin.closest(
       'button,a,select,input,textarea,label,[role="button"],[role="menuitem"],' +
       '[role="option"],[role="combobox"],[role="checkbox"],[role="radio"],' +
-      'mat-option,mat-select,[data-testid],td,th,[role="row"],tr') || origin;
+      'mat-option,mat-select,[data-testid],[tabindex],td,th,[role="row"],tr') || null;
   };
 
   const textOf = el => {
