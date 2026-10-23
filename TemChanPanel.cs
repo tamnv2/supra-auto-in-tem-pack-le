@@ -102,13 +102,13 @@ internal sealed class TemChanPanel : UserControl
             _so.Focus();
             _so.SelectAll();
         }
-        catch(InvalidOperationException)
-        {
-            // Tab is changing; the next activation will focus the SO input.
-        }
         catch(ObjectDisposedException)
         {
             // The active tab was disposed as the focus notification arrived.
+        }
+        catch(InvalidOperationException)
+        {
+            // Tab is changing; the next activation will focus the SO input.
         }
     }
     public void UpdateBrowserButton()
