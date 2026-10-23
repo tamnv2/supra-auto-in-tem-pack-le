@@ -27,30 +27,54 @@ internal static class WmsTemChanJs
         location.protocol === 'https:' && location.hostname === 'wms-supra.winmart.vn' &&
         location.pathname.replace(/\/$/,'') === '/sft3/app/saleorder/details/' + so &&
         location.search === '?PickType=PickOrder';
-      // Find one explicitly labeled, visible value in the detail header. We never
-      // transfer the value to .NET; only equality/validity flags.
-      const nextAfterLabel = label => {
-        if (!document.body) return null;
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        const matches = [];
+      // Read a status only when it is paired with the exact "Trạng thái" label.
+      // WMS layouts have nested wrappers and decorative text nodes; assuming the
+      // *first* following text node is the value produced false STATUS_NOT_READY.
+      // Never accept a status word elsewhere on the page or guess from its color.
+      const statusEvidence = () => {
+        if (!document.body) return {known:false,valid:false};
+        const walker = document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+        const labels = [], values = [];
         let node;
         while ((node = walker.nextNode())) {
           const el = node.parentElement;
-          if (!visible(el) || ['SCRIPT','STYLE'].includes(el.tagName)) continue;
-          if (norm(node.textContent).replace(/:$/,'') === norm(label).replace(/:$/,'')) {
-            const candidates = [];
-            let candidate = walker.nextNode();
-            while (candidate && candidates.length < 3) {
-              if (candidate.parentElement && visible(candidate.parentElement)) {
-                const txt = compact(candidate.textContent);
-                if (txt) candidates.push(txt);
-              }
-              candidate = walker.nextNode();
-            }
-            matches.push(candidates.length ? candidates[0] : null);
-          }
+          if (!el || !visible(el) || ['SCRIPT','STYLE'].includes(el.tagName)) continue;
+          const val=norm(node.textContent);
+          if (/^trạng thái\s*:?$/.test(val)) labels.push(node);
         }
-        return matches.length === 1 ? matches[0] : null;
+        if (labels.length !== 1) return {known:false,valid:false};
+        const label = labels[0];
+        // Most WMS revisions render the label and its value inside a common row.
+        // Limit to local ancestors; the whole summary containing other fields
+        // must not be treated as status evidence.
+        for (let el=label.parentElement,depth=0;el && depth<4;el=el.parentElement,depth++) {
+          const raw=compact(el.innerText || el.textContent);
+          if (raw.length>0 && raw.length<=200 &&
+              /trạng thái\s*:/i.test(raw) && norm(raw).includes(expectedStatus) &&
+              !/loại đơn hàng xuất\s*:/i.test(raw))
+            return {known:true,valid:true};
+        }
+        // Last resort: search a small sequence of *visible leaf text nodes*
+        // following that label, stopping at the next labeled field.
+        const scan=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+        let inField=false,steps=0;
+        while ((node=scan.nextNode())) {
+          if (node===label) {inField=true;continue;}
+          if (!inField)continue;
+          const el=node.parentElement;
+          if (!el || !visible(el))continue;
+          const value=norm(node.textContent);
+          if (!value)continue;
+          if (/^[^:]{2,65}:$/.test(value))break;
+          if (value===expectedStatus)return {known:true,valid:true};
+          // A single explicit other status is evidence of not-ready; loose
+          // captions or decoration are NOT business-status values.
+          if (/^(?:đang|chưa|chờ|đã|hủy|huỷ|mới)\b/u.test(value) && value.length<=110)
+            values.push(value);
+          if (++steps>=9)break;
+        }
+        return values.length===1 ? {known:true,valid:false} :
+          {known:false,valid:false};
       };
       const tabs = () => [...document.querySelectorAll('[role="tab"],.mat-tab-label')]
         .filter(el => visible(el) && norm(el.innerText) === 'thông tin kiện hàng');
@@ -92,10 +116,9 @@ internal static class WmsTemChanJs
       };
       const detail = so => {
         if (!pathOk(so)) return {ok:false,reason:'WRONG_PAGE'};
-        const value = nextAfterLabel('Trạng thái');
-        const known = value !== null;
-        // Exact expected business status only; fail closed on unknown DOM.
-        const statusValid = known && norm(value) === expectedStatus;
+        const evidence = statusEvidence();
+        const known = evidence.known;
+        const statusValid = evidence.valid;
         const hasTab = tabs().length === 1;
         return {ok:true,reason:!known?'STATUS_NOT_LOCATED':!statusValid?'STATUS_NOT_READY':
               !hasTab?'PACKAGE_TAB_AMBIGUOUS':'OK',

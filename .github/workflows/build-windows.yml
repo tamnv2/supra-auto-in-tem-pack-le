@@ -98,6 +98,12 @@ jobs:
         run: |
           $p = Start-Process -FilePath (Resolve-Path 'publish/WmsPackingAssistant.exe').Path -ArgumentList '--startup-smoke' -PassThru -Wait -NoNewWindow
           if ($p.ExitCode -ne 0) { throw "SMOKE_FAILED_CODE_$($p.ExitCode)" }
+      - name: Windows GUI mode transitions smoke
+        shell: pwsh
+        run: |
+          $app = (Resolve-Path 'publish/WmsPackingAssistant.exe').Path
+          $p = Start-Process -FilePath $app -ArgumentList '--mode-ui-smoke' -PassThru -Wait -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "MODE_UI_SMOKE_FAILED_$($p.ExitCode)" }
       - name: Package and checksum
         shell: pwsh
         run: |
