@@ -62,6 +62,8 @@ public sealed class MainForm : Form
     private bool _setupRunning;
     private Task? _setupTask;
     private bool _printerVerified;
+    private string _verifiedPrinter="";
+    private int _printerSetupGeneration;
     private bool _resettingBrowser;
     private readonly System.Windows.Forms.Timer _saveWidthsTimer=new(){Interval=650};
     private string _stage="INIT";
@@ -74,7 +76,14 @@ public sealed class MainForm : Form
         _browser=new WmsBrowser(_store,ShowBrowser);
         _browser.LoginRequired+=()=>
         {
-            if(_temChanMode){_browser.Reveal();return;}
+            if(_temChanMode)
+            {
+                _temChanPanel?.SetPrinterReady(false);
+                var generation=++_printerSetupGeneration;
+                _browser.Reveal();
+                _=RunTemChanPrinterSetupAsync(generation);
+                return;
+            }
             if(!_setupDone||IsDisposed||_resettingBrowser)return;
             _setupDone=false;
             _printerVerified=false;
@@ -125,7 +134,12 @@ public sealed class MainForm : Form
                     Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
                     _setupTask=RunInitialSetupAsync();
                 }
-                else _temChanPanel?.UpdateBrowserButton();
+                else
+                {
+                    _temChanPanel?.UpdateBrowserButton();
+                    var generation=++_printerSetupGeneration;
+                    _=RunTemChanPrinterSetupAsync(generation);
+                }
             }
             catch
             {
@@ -296,9 +310,16 @@ public sealed class MainForm : Form
         if(!initial && temChan==_temChanMode)
         {
             _tabs.SelectedTab=temChan?_temChanTab:_operationTab;
+            if(temChan && _temChanPanel?.PrinterReady!=true && _browser.Ready)
+                _=RunTemChanPrinterSetupAsync(++_printerSetupGeneration);
+            if(!temChan && !_setupDone && !_setupRunning && _browser.Ready)
+                _setupTask=RunInitialSetupAsync();
             return;
         }
         _setupRunning=false;
+        ++_printerSetupGeneration; // cancel old in-tem-chan login/selection polling.
+        _verifiedPrinter="";
+        _temChanPanel?.SetPrinterReady(false);
         _switchingOperation=true;
         _tabs.SuspendLayout();
         try
@@ -334,6 +355,8 @@ public sealed class MainForm : Form
             _switchingOperation=false;
         }
         if(!temChan && _browser.Ready)_setupTask=RunInitialSetupAsync();
+        if(temChan && !initial && _browser.Ready)
+            _=RunTemChanPrinterSetupAsync(_printerSetupGeneration);
         Text="WMS Packing & Productivity Assistant | "+
             (temChan?"IN TEM CHẴN":"IN TEM LẺ AUTO")+" | "+Application.ProductVersion;
         UpdateControls();
@@ -812,6 +835,49 @@ public sealed class MainForm : Form
                 UpdateControls();
                 if(_browser.Ready&&!_setupDone&&!_temChanMode)
                     _setupTask=RunInitialSetupAsync();
+            }
+        }
+    }
+
+    private async Task RunTemChanPrinterSetupAsync(int generation)
+    {
+        if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration)return;
+        _temChanPanel?.SetPrinterReady(false);
+        try
+        {
+            ShowBrowser();
+            var selected=await WmsPrinterCoordinator.SelectAsync(
+                this,_browser,
+                ()=>!IsDisposed && _temChanMode && generation==_printerSetupGeneration,
+                message=>{
+                    if(!IsDisposed && generation==_printerSetupGeneration)
+                        _temChanPanel?.PrinterProgress(message);
+                });
+            if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration)return;
+            _verifiedPrinter=selected;
+            _temChanPanel?.SetPrinterReady(true,selected);
+            _store.Trace("PRINTER","EVEN_SELECTED","DONE");
+            HideBrowser();
+        }
+        catch(OperationCanceledException)
+        {
+            if(!IsDisposed && _temChanMode && generation==_printerSetupGeneration)
+            {
+                _temChanPanel?.PrinterProgress("Đã hủy chọn máy in. Ô SO vẫn bị khóa.");
+                ShowBrowser();
+            }
+        }
+        catch(Exception ex)
+        {
+            if(!IsDisposed && _temChanMode && generation==_printerSetupGeneration)
+            {
+                _store.Trace("PRINTER","EVEN_SETUP_FAILED","ERROR");
+                _temChanPanel?.PrinterProgress("Không thể xác minh máy in. Mở Cài đặt để chọn lại.");
+                ShowBrowser();
+                MessageBox.Show(this,"Không thể hoàn tất thiết lập máy in WMS: "+
+                    ex.Message+"\\nÔ SO sẽ giữ khóa đến khi chọn được máy in.",
+                    "IN TEM CHẴN · Máy in chưa sẵn sàng",
+                    MessageBoxButtons.OK,MessageBoxIcon.Warning);
             }
         }
     }
