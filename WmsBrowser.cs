@@ -168,15 +168,27 @@ internal sealed class WmsBrowser : UserControl
     {
         var core=_view.CoreWebView2;
         if(core is null)return new(){reason="WEB_NOT_READY"};
+        // A real employee click may already have opened Angular's options.
+        // Do not clear the query or close a working menu by clicking again.
+        var already=await PrinterPeekAsync();
+        if(already?.printerDialog==true && already.optionsExpanded && already.optionCount>0)
+        {
+            _storage.Trace("PRINTER","OPTIONS_ALREADY_VISIBLE","DONE",0,
+                "COUNT="+already.optionCount);
+            return new(){ok=true,reason="OPTIONS_ALREADY_VISIBLE"};
+        }
+        _storage.Trace("PRINTER","NATIVE_EXPAND_START","WAIT");
         var json=await core.ExecuteScriptAsync(
             "window.__supraPrinterV1?.pointerTarget('EXPAND') || "+ 
             "{ok:false,reason:'NO_PRINTER_SCRIPT'}");
         var target=JsonSerializer.Deserialize<PrinterPointerTarget>(json);
         if(target?.ok!=true)
         {
-            if(target?.reason=="NATIVE_SELECT")
+            var reason=target?.reason??"PRINTER_TARGET_NOT_READY";
+            _storage.Trace("PRINTER","NATIVE_TARGET_INVALID","BLOCKED",0,reason);
+            if(reason=="NATIVE_SELECT")
                 return await PrinterScriptActionAsync("EXPAND","");
-            return new(){reason=target?.reason??"PRINTER_TARGET_NOT_READY"};
+            return new(){reason=reason};
         }
         var xy=new {x=target.x,y=target.y};
         await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent",
@@ -191,19 +203,34 @@ internal sealed class WmsBrowser : UserControl
             await Task.Delay(250);
             var peek=await PrinterPeekAsync();
             if(peek?.optionsExpanded==true && peek.optionCount>0)
+            {
+                _storage.Trace("PRINTER","NATIVE_OPTIONS_VISIBLE","DONE",0,
+                    "COUNT="+peek.optionCount);
                 return new(){ok=true,reason="NATIVE_POINTER_OPTIONS_VISIBLE"};
+            }
         }
         // Only if a trusted browser click failed: clear the SEARCH query,
         // never confirm or change the stored printer without real options.
+        _storage.Trace("PRINTER","NATIVE_OPTIONS_EMPTY","WAIT");
         var fallback=await PrinterScriptActionAsync("EXPAND","");
-        if(!fallback.ok)return fallback;
+        if(!fallback.ok)
+        {
+            _storage.Trace("PRINTER","FALLBACK_EXPAND_BLOCKED","BLOCKED",0,
+                fallback.reason??"UNSPECIFIED");
+            return fallback;
+        }
         for(var attempt=0;attempt<5;attempt++)
         {
             await Task.Delay(250);
             var peek=await PrinterPeekAsync();
             if(peek?.optionsExpanded==true && peek.optionCount>0)
+            {
+                _storage.Trace("PRINTER","FALLBACK_OPTIONS_VISIBLE","DONE",0,
+                    "COUNT="+peek.optionCount);
                 return new(){ok=true,reason="SEARCH_QUERY_OPTIONS_VISIBLE"};
+            }
         }
+        _storage.Trace("PRINTER","OPTIONS_NOT_OPEN","ERROR");
         return new(){reason="PRINTER_DROPDOWN_DID_NOT_OPEN"};
     }
     private async Task<BrowserResult> PrinterScriptActionAsync(string action,string selection)
@@ -225,7 +252,16 @@ internal sealed class WmsBrowser : UserControl
             var core=_view.CoreWebView2;
             await core.ExecuteScriptAsync(WmsPrinterSetupJs.Script);
             if(action=="EXPAND")return await PrinterNativeExpandAsync();
-            return await PrinterScriptActionAsync(action,selection);
+            var result=await PrinterScriptActionAsync(action,selection);
+            // Never trace the selected printer or other business/UI values.
+            var safeReason=System.Text.RegularExpressions.Regex.IsMatch(
+                result.reason??"","^[A-Z0-9_]{1,60}$")?result.reason:"UNSPECIFIED";
+            if(action is "ACCOUNT_OPEN" or "PRINTER_MENU" or "PICK" or
+                "CONFIRM" or "CLOSE" or "SCAN_RESET")
+                _storage.Trace("PRINTER","ACTION_"+action,
+                    result.ok?"DONE":"BLOCKED",0,
+                    result.ok?"":safeReason);
+            return result;
         }
         catch
         {

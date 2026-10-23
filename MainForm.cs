@@ -276,11 +276,12 @@ public sealed class MainForm : Form
     private Control BuildOperationSettings()
     {
         var root=new TableLayoutPanel {
-            Dock=DockStyle.Fill,Padding=new Padding(26),ColumnCount=1,RowCount=3,
+            Dock=DockStyle.Fill,Padding=new Padding(26),ColumnCount=1,RowCount=4,
             BackColor=Color.FromArgb(247,249,252)
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,75));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute,80));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,78));
         root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         root.Controls.Add(new Label {
             Text="CÀI ĐẶT · CHỌN NGHIỆP VỤ",Dock=DockStyle.Fill,
@@ -298,13 +299,46 @@ public sealed class MainForm : Form
         le.Click+=(_,_)=>SwitchOperation(false);
         buttons.Controls.Add(ch,0,0);buttons.Controls.Add(le,1,0);
         root.Controls.Add(buttons,0,1);
+        var diagnostics=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,RowCount=1};
+        diagnostics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        diagnostics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        var retryPrinter=MakeButton("THỬ LẠI THIẾT LẬP MÁY IN",280);
+        var technicalLog=MakeButton("XUẤT LOG KỸ THUẬT",255);
+        retryPrinter.Dock=DockStyle.Fill;technicalLog.Dock=DockStyle.Fill;
+        retryPrinter.Margin=new Padding(4);technicalLog.Margin=new Padding(4);
+        retryPrinter.Click+=(_,_)=>{
+            if(_busy||_setupRunning||_resettingBrowser||_browser.Recording ||
+                _temChanPanel?.IsBusy==true||_temChanPanel?.NeedsManualReview==true ||
+                _needsRecovery)
+            {
+                MessageBox.Show(this,"Chỉ thử lại sau khi các thao tác WMS đã kết thúc.",
+                    "Đang bận",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
+            }
+            ShowBrowser();
+            _store.Trace("PRINTER","OPERATOR_RETRY","DONE");
+            if(_temChanMode)
+            {
+                _temChanPanel?.SetPrinterReady(false);
+                _=RunTemChanPrinterSetupAsync(++_printerSetupGeneration);
+            }
+            else
+            {
+                _setupDone=false;_printerVerified=false;
+                _setupTask=RunInitialSetupAsync();
+            }
+        };
+        technicalLog.Click+=(_,_)=>ExportLogs();
+        diagnostics.Controls.Add(retryPrinter,0,0);
+        diagnostics.Controls.Add(technicalLog,1,0);
+        root.Controls.Add(diagnostics,0,2);
         root.Controls.Add(new Label {
             Text="Chuyển nghiệp vụ không cần khởi động lại. Không chuyển khi đang in, "+
                 "đang đóng gói hoặc khi WMS chưa được kiểm tra sau một thao tác không chắc chắn. "+
                 "Nghiệp vụ in tem lẻ giữ nguyên lịch sử và thống kê; in tem chẵn không lưu lịch sử.",
             Dock=DockStyle.Fill,Font=new Font("Segoe UI",11),AutoSize=false,
-            TextAlign=ContentAlignment.TopLeft,Padding=new Padding(4,24,4,4)
-        },0,2);
+            TextAlign=ContentAlignment.TopLeft,Padding=new Padding(4,12,4,4)
+        },0,3);
         return root;
     }
 
@@ -858,6 +892,17 @@ public sealed class MainForm : Form
         }
     }
 
+    private static string PrinterProgressCode(string message)
+    {
+        if(message.StartsWith("Chờ đăng nhập",StringComparison.Ordinal))return "WAIT_LOGIN";
+        if(message.StartsWith("WMS đã sẵn sàng",StringComparison.Ordinal))return "OPEN_MENU";
+        if(message.StartsWith("Đang mở danh sách",StringComparison.Ordinal))return "OPEN_OPTIONS";
+        if(message.StartsWith("Đang quét",StringComparison.Ordinal))return "SCAN_OPTIONS";
+        if(message.StartsWith("Đã đọc",StringComparison.Ordinal))return "WAIT_CHOICE";
+        if(message.StartsWith("Đang chọn",StringComparison.Ordinal))return "APPLY_CHOICE";
+        if(message.StartsWith("Đã xác minh",StringComparison.Ordinal))return "VERIFIED";
+        return "UNKNOWN";
+    }
     private async Task RunTemChanPrinterSetupAsync(int generation)
     {
         if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration ||
@@ -872,7 +917,10 @@ public sealed class MainForm : Form
                 ()=>!IsDisposed && _temChanMode && generation==_printerSetupGeneration,
                 message=>{
                     if(!IsDisposed && generation==_printerSetupGeneration)
+                    {
                         _temChanPanel?.PrinterProgress(message);
+                        _store.Trace("PRINTER","EVEN_"+PrinterProgressCode(message),"WAIT");
+                    }
                 });
             if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration)return;
             _verifiedPrinter=selected;
@@ -892,7 +940,10 @@ public sealed class MainForm : Form
         {
             if(!IsDisposed && _temChanMode && generation==_printerSetupGeneration)
             {
-                _store.Trace("PRINTER","EVEN_SETUP_FAILED","ERROR");
+                var detail=System.Text.RegularExpressions.Regex.Match(ex.Message,
+                    @"[A-Z][A-Z0-9_]{2,59}").Value;
+                _store.Trace("PRINTER","EVEN_SETUP_FAILED","ERROR",0,
+                    string.IsNullOrEmpty(detail)?"UNSPECIFIED":detail);
                 _temChanPanel?.PrinterProgress("Không thể xác minh máy in. Mở Cài đặt để chọn lại.");
                 ShowBrowser();
                 MessageBox.Show(this,"Không thể hoàn tất thiết lập máy in WMS: "+
@@ -1051,7 +1102,13 @@ public sealed class MainForm : Form
                             this,_browser,
                             ()=>!IsDisposed && !_temChanMode && _setupRunning &&
                                 !_resettingBrowser && !_busy,
-                            message=>{if(!IsDisposed)Status("INIT",message);});
+                            message=>{
+                                if(!IsDisposed)
+                                {
+                                    Status("INIT",message);
+                                    _store.Trace("PRINTER","LOOSE_"+PrinterProgressCode(message),"WAIT");
+                                }
+                            });
                         if(!_setupRunning||IsDisposed||_temChanMode)break;
                         _verifiedPrinter=selected;
                         _printerVerified=true;
