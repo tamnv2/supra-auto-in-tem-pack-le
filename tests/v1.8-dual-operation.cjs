@@ -14,6 +14,8 @@ assert.match(script, /end <= total/);
 assert.match(script, /input\[name="startPackage"\]/);
 assert.match(script, /input\[name="endPackage"\]/);
 assert.match(script, /PRINT_ROW_NOT_UNIQUE/);
+assert.match(script, /mat-row,tr,\[role="row"\]/);
+assert.match(script, /mat-grid-list mat-grid-tile/);
 assert.match(script, /PRINT_CONFIRM_AMBIGUOUS/);
 assert.match(script, /PRINT_COMMAND_SENT/);
 assert.doesNotMatch(script, /\b(?:screenX|screenY|clientX|clientY|pageX|pageY)\b/);
@@ -28,7 +30,8 @@ assert.match(script,/dialogReason/);
 assert.doesNotMatch(panel, /TryAppendHistory|HistoryRow|ExportXlsx|SaveHistory/);
 
 function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
-  begin='1', end='4', prints=1, confirmButtons=1, decorative=[]}={}) {
+  begin='1', end='4', prints=1, confirmButtons=1, decorative=[],
+  omitStatusCaption=false, duplicateStatusTiles=false}={}) {
   const so='SOABC12345';
   let activeTab=false, dialogOpen=false, commandCount=0;
   const css={display:'block',visibility:'visible'};
@@ -36,7 +39,7 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
     isConnected:true,disabled:false,
     getClientRects:()=>[{}],getAttribute:(k)=>null,
     classList:{contains:(c)=>c==='app-table-action-button'},
-    closest:(s)=>s.includes('tr')?{}:null,
+    closest:(s)=>s.includes('tr')||s.includes('mat-cell')?{}:null,
     querySelector:()=>null, querySelectorAll:()=>[],innerText:'',
     click:()=>{}, ...extra
   });
@@ -63,7 +66,7 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
   });
   const statusEl=make({tagName:'DIV'});
   const nodes=[
-    {textContent:'Trạng thái:',parentElement:statusEl},
+    ...(!omitStatusCaption?[{textContent:'Trạng thái:',parentElement:statusEl}]:[]),
     ...decorative.map(textContent=>({textContent,parentElement:statusEl})),
     {textContent:status,parentElement:statusEl},
     {textContent:'Thông tin kiện hàng',parentElement:statusEl}
@@ -73,7 +76,10 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
     createTreeWalker:()=>({nextNode:(()=>{let i=-1;return ()=>nodes[++i]||null;})()}),
     querySelectorAll:q=>{
       if(q==='[role="tab"],.mat-tab-label')return [tab];
-      if(q==='button')return rows;
+      if(q==='mat-grid-list mat-grid-tile')
+        return (duplicateStatusTiles?[status,status]:[status])
+          .map(text=>make({innerText:text}));
+      if(q==='button.app-table-action-button')return rows;
       if(q==='mat-dialog-container')return dialogOpen?[dialog]:[];
       if(q==='[role="dialog"]')return dialogOpen?[dialog]:[];
       return [];
@@ -94,6 +100,8 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
 {
   const f=fixture();
   assert.equal(f.api.peek(f.so).statusValid,true);
+  assert.equal(f.api.peek(f.so).statusSource,'ORDER_HEADER_TILE');
+  assert.equal(f.api.peek(f.so).printCount,1);
   // A closed dialog must NOT overwrite the top-level valid SO state.
   assert.equal(f.api.peek(f.so).reason,'OK');
   assert.equal(f.api.peek(f.so).dialogReason,'PRINT_DIALOG_ABSENT');
@@ -122,6 +130,24 @@ for(const total of ['1.5','0','-2']){
   const f=fixture({decorative:[' ','?', '•']});
   assert.equal(f.api.peek(f.so).statusValid,true);
   assert.equal(f.api.peek(f.so).statusKnown,true);
+}
+{
+  // Actual field trace: WMS status is in a mat-grid-tile, while its caption
+  // can be absent after moving to the "Thông tin kiện hàng" tab.
+  const f=fixture({omitStatusCaption:true});
+  assert.equal(f.api.peek(f.so).statusValid,true);
+  assert.equal(f.api.peek(f.so).statusSource,'ORDER_HEADER_TILE');
+  assert.equal(f.api.perform('TAB',f.so).ok,true);
+  assert.equal(f.api.peek(f.so).printCount,1);
+  assert.equal(f.api.perform('OPEN_PRINT',f.so).ok,true);
+  assert.equal(f.dialog(),true);
+}
+{
+  // Multiple same status tiles is ambiguous; never click a print button.
+  const f=fixture({omitStatusCaption:true,duplicateStatusTiles:true});
+  assert.equal(f.api.peek(f.so).statusValid,false);
+  assert.equal(f.api.peek(f.so).statusSource,'HEADER_STATUS_AMBIGUOUS');
+  assert.equal(f.api.perform('OPEN_PRINT',f.so).ok,false);
 }
 {
   const f=fixture({status:'Đang đóng gói'});
