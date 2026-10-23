@@ -15,11 +15,15 @@ assert.match(even,/SetPrinterReady\(bool ready/);
 assert.match(even,/_so\.Enabled=false/);
 assert.match(coordinator,/PrinterSelectionForm/);
 assert.match(coordinator,/choice!=previous/);
+assert.match(coordinator,/if\(!initial\.printerDialog\)/);
+assert.match(main,/_activeTemChanPrinterSetupGeneration/);
+assert.match(script,/blockingDialogCount/);
+assert.match(script,/f\.focus\(\)/);
 assert.match(coordinator,/ActionAsync\(browser,active,"CLOSE",choice\)/);
 
-function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)'){
+function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)',alreadyOpen=false){
   const names=['21-1129-D28 (Online)','21-1129-D29 (Online)','21-1130-D31 (Offline)'];
-  let current=original,saved=original,account=false,modal=false,expanded=false,confirms=0,closes=0;
+  let current=original,saved=original,account=false,modal=alreadyOpen,expanded=false,confirms=0,closes=0;
   const make=(name,click=()=>{})=>({
     tagName:'BUTTON',innerText:name,textContent:name,disabled:false,isConnected:true,
     getClientRects:()=>[1],getAttribute:()=>null,click,
@@ -27,7 +31,10 @@ function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)'
   });
   const input=make('');
   input.tagName='INPUT';input.value=original;
-  input.click=()=>{expanded=true;};
+  // Angular autocomplete opens on focus, while a JS .click alone may not.
+  input.focus=()=>{expanded=true;};
+  input.click=()=>{};
+  input.dispatchEvent=()=>{};
   const options=names.map(name=>{
     const x=make(name,()=>{current=name;input.value=name;expanded=false;});
     x.tagName='MAT-OPTION';return x;
@@ -74,6 +81,7 @@ for(const page of ['/sft3/app/saleorder/list','/sft3/app/saleorder/packing']){
   assert.equal(api.perform('EXPAND').ok,true);
   assert.equal(api.peek().scanDone,true);
   assert.equal(api.peek().options.length,3);
+  assert.equal(api.peek().blockingDialogCount,0);
   assert.equal(api.perform('PICK','Unknown Printer').ok,false);
   assert.equal(api.perform('PICK','21-1129-D29 (Online)').ok,true);
   assert.equal(api.peek().currentPrinter,'21-1129-D29 (Online)');
@@ -104,5 +112,14 @@ for(const page of ['/sft3/app/saleorder/list','/sft3/app/saleorder/packing']){
   const f=fixture('/sft3/app/saleorder/details/TEST123');
   assert.equal(f.api.peek().ok,false);
   assert.equal(f.api.perform('ACCOUNT_OPEN').ok,false);
+}
+{
+  // An existing printer modal should be adopted rather than overlaid.
+  const f=fixture('/sft3/app/saleorder/list','21-1129-D28 (Online)',true);
+  assert.equal(f.api.peek().printerDialog,true);
+  assert.equal(f.api.peek().blockingDialogCount,0);
+  assert.equal(f.api.perform('ACCOUNT_OPEN').reason,'ANOTHER_DIALOG_OPEN');
+  assert.equal(f.api.perform('EXPAND').ok,true);
+  assert.equal(f.api.peek().options.length,3);
 }
 console.log('PRINTER_DYNAMIC_CHOICES_TWO_ROUTES_CONFIRM_OR_CLOSE_PASS');
