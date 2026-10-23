@@ -10,6 +10,8 @@ namespace SupraAutoPackLe;
 internal sealed class TemChanPanel : UserControl
 {
     private readonly WmsBrowser _browser;
+    private readonly LocalStore _log;
+    private readonly Stopwatch _workClock=new();
     private readonly Action _showBrowser;
     private readonly Action _hideBrowser;
     private readonly TextBox _so = new() { Font=new Font("Segoe UI",23,FontStyle.Bold),
@@ -55,9 +57,9 @@ internal sealed class TemChanPanel : UserControl
     public bool NeedsManualReview=>_uncertain;
     public bool BrowserIsShown {get;set;}
 
-    public TemChanPanel(WmsBrowser browser,Action showBrowser,Action hideBrowser)
+    public TemChanPanel(WmsBrowser browser,Action showBrowser,Action hideBrowser,LocalStore log)
     {
-        _browser=browser;_showBrowser=showBrowser;_hideBrowser=hideBrowser;
+        _browser=browser;_showBrowser=showBrowser;_hideBrowser=hideBrowser;_log=log;
         Dock=DockStyle.Fill;BackColor=Color.FromArgb(247,249,252);
         var shell = new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(24,20,24,20),
             ColumnCount=1,RowCount=5 };
@@ -109,6 +111,7 @@ internal sealed class TemChanPanel : UserControl
                 "Xác nhận kiểm tra WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)
                 return;
             _uncertain=false;_manual.Visible=false;_so.Enabled=true;
+            _log.Trace("EVEN","MANUAL_REVIEW_ACCEPTED","DONE");
             Step("Đã xác nhận xử lý thủ công. Có thể nhập SO tiếp theo.");
             _state.Text="SẴN SÀNG · Đã kiểm tra WMS";
             FocusSo();
@@ -147,26 +150,50 @@ internal sealed class TemChanPanel : UserControl
         _steps.AppendText(DateTime.Now.ToString("HH:mm:ss")+"  "+text+Environment.NewLine);
         _steps.ScrollToCaret();
     }
+    private static string WaitCode(string label) => label switch
+    {
+        "Mở trang chi tiết / đọc trạng thái" => "DETAIL_STATUS",
+        "Mở THÔNG TIN KIỆN HÀNG" => "PARCEL_TAB",
+        "WMS ổn định / nút in kiện hàng" => "PRINT_READY",
+        "Mở Tùy chọn in nhãn" => "LABEL_DIALOG",
+        "WMS xác nhận đóng hộp thoại" => "LABEL_CLOSED",
+        _ => "UNKNOWN"
+    };
+    private static string SafeUiCounts(TemChanPeek? p) =>
+        "PRINT="+(p?.printCount??0)+
+        ";DIALOG="+(p?.dialogOpen==true?1:0)+
+        ";TAB="+(p?.tabSelected==true?1:0)+
+        ";STATUS="+(p?.statusValid==true?1:0);
     private void Alert(string text)
     {
         _state.Text="CẢNH BÁO · "+text;
         Step("CẢNH BÁO: "+text);
+        _log.Trace("EVEN","USER_ALERT","BLOCKED",_workClock.ElapsedMilliseconds);
         MessageBox.Show(this,text,"IN TEM CHẴN · Cần xác nhận",MessageBoxButtons.OK,MessageBoxIcon.Warning);
     }
     private async Task<TemChanPeek> WaitAsync(string so,Func<TemChanPeek,bool> predicate,
         string stage,int seconds)
     {
         var watch=Stopwatch.StartNew();int stable=0;TemChanPeek? last=null;
+        var code=WaitCode(stage);
+        _log.Trace("EVEN","WAIT_"+code,"WAIT",_workClock.ElapsedMilliseconds);
         while(watch.Elapsed<TimeSpan.FromSeconds(seconds))
         {
             last=await _browser.TemChanPeekAsync(so);
             if(last?.ok==true && predicate(last))
             {
-                if(++stable>=2)return last;
+                if(++stable>=2)
+                {
+                    _log.Trace("EVEN","WAIT_"+code,"DONE",watch.ElapsedMilliseconds,
+                        SafeUiCounts(last));
+                    return last;
+                }
             }
             else stable=0;
             await Task.Delay(360);
         }
+        _log.Trace("EVEN","WAIT_"+code,"TIMEOUT",watch.ElapsedMilliseconds,
+            SafeUiCounts(last));
         throw new TemChanStop(stage+" không đạt yêu cầu trong "+seconds+
             " giây. "+(last?.reason??"WMS_NOT_READY")+
             " (nút in="+(last?.printCount??0)+", tab="+(last?.tabSelected==true?"đã chọn":"chưa chọn")+
@@ -174,34 +201,57 @@ internal sealed class TemChanPanel : UserControl
     }
     private async Task ExecuteAsync(string action,string so)
     {
+        _log.Trace("EVEN","ACTION_"+action,"WAIT",_workClock.ElapsedMilliseconds);
         var result=await _browser.TemChanPerformAsync(action,so);
+        _log.Trace("EVEN","ACTION_"+action,result.ok?"DONE":"BLOCKED",
+            _workClock.ElapsedMilliseconds);
         if(!result.ok)throw new TemChanStop("Không xác nhận được thao tác "+action+
             " ("+result.reason+"). Không tự click lại.");
     }
     private async Task RunAsync()
     {
-        if(_busy || _uncertain)return;
+        if(_busy || _uncertain)
+        {
+            _log.Trace("EVEN","SUBMIT_BLOCKED","BLOCKED",0,
+                _uncertain?"REVIEW_REQUIRED":"OPERATION_BUSY");
+            return;
+        }
         if(!_printerReady)
         {
             Alert("Chưa chọn và xác nhận máy in WMS. Không thể in tem.");
             return;
         }
         string so=_so.Text.Trim().ToUpperInvariant();
-        if(!SoFormat.IsMatch(so)) {Alert("Mã SO không hợp lệ (5–50 ký tự A-Z, số, _ hoặc -).");return;}
-        if(!_browser.Ready) {Alert("Web WMS chưa sẵn sàng. Hãy đăng nhập trước.");return;}
+        if(!SoFormat.IsMatch(so))
+        {
+            _log.Trace("EVEN","SO_VALIDATION","BLOCKED");
+            Alert("Mã SO không hợp lệ (5–50 ký tự A-Z, số, _ hoặc -).");return;
+        }
+        if(!_browser.Ready)
+        {
+            _log.Trace("EVEN","BROWSER_NOT_READY","BLOCKED");
+            Alert("Web WMS chưa sẵn sàng. Hãy đăng nhập trước.");return;
+        }
+        _workClock.Restart();
+        _log.Trace("EVEN","JOB_STARTED","DONE");
         _busy=true;_so.Enabled=false;_manual.Visible=false;
         bool printIssued=false;
         try
         {
             _state.Text="ĐANG XỬ LÝ · "+so;
             Step("Bắt đầu lượt in. Truy cập chi tiết SO.");
+            _log.Trace("EVEN","NAVIGATE_DETAIL","WAIT",_workClock.ElapsedMilliseconds);
             if(!_browser.NavigateTemChan(so))
                 throw new TemChanStop("Không mở được trang chi tiết SO.");
+            _log.Trace("EVEN","NAVIGATE_DETAIL","DONE",_workClock.ElapsedMilliseconds);
             var p=await WaitAsync(so,x=>x.statusKnown && x.tabReady,
                 "Mở trang chi tiết / đọc trạng thái",30);
             if(!p.statusValid)
+            {
+                _log.Trace("EVEN","STATUS_NOT_VALID","BLOCKED",_workClock.ElapsedMilliseconds);
                 throw new TemChanStop("SO chưa sẵn sàng in tem. Yêu cầu trạng thái: "+
                     "'Đã lưu trữ hàng sau đóng gói'.");
+            }
             Step("Trạng thái WMS hợp lệ: Đã lưu trữ hàng sau đóng gói.");
             await ExecuteAsync("TAB",so);
             await WaitAsync(so,x=>x.tabSelected,"Mở THÔNG TIN KIỆN HÀNG",15);
@@ -211,22 +261,32 @@ internal sealed class TemChanPanel : UserControl
             Step("WMS đã xác nhận trạng thái, tab kiện hàng và đúng một nút in.");
             await ExecuteAsync("OPEN_PRINT",so);
             p=await WaitAsync(so,x=>x.dialogOpen,"Mở Tùy chọn in nhãn",15);
-            if(!p.rangeValid)throw new TemChanStop("Số thùng không hợp lệ: "+p.dialogReason+
+            if(!p.rangeValid)
+            {
+                _log.Trace("EVEN","PRINT_RANGE_INVALID","BLOCKED",_workClock.ElapsedMilliseconds);
+                throw new TemChanStop("Số thùng không hợp lệ: "+p.dialogReason+
                 ". Số thùng bắt đầu/kết thúc và tổng số thùng phải là số nguyên dương, "+
                 "không vượt phạm vi.");
+            }
+            _log.Trace("EVEN","PRINT_RANGE_VALID","DONE",_workClock.ElapsedMilliseconds);
             Step("Phạm vi hợp lệ: "+p.begin+"–"+p.finish+" / "+p.total+" thùng.");
             _state.Text="ĐANG GỬI LỆNH IN · Không thao tác SO mới";
             // This command is non-idempotent. If response is lost, don't attempt again.
             printIssued=true;
+            _log.Trace("EVEN","PRINT_MAY_HAVE_ISSUED","UNCERTAIN",_workClock.ElapsedMilliseconds);
             await ExecuteAsync("PRINT_LABEL",so);
             Step("Đã gửi thao tác In Nhãn; chờ WMS đóng hộp thoại.");
             await WaitAsync(so,x=>!x.dialogOpen,"WMS xác nhận đóng hộp thoại",25);
             _state.Text="HOÀN TẤT GIAO DIỆN · Sẵn sàng nhập SO khác";
             Step("Hoàn tất một vòng giao diện. Chưa xác minh tem ra máy in vật lý.");
             _so.Clear();
+            _log.Trace("EVEN","JOB_UI_COMPLETE","DONE",_workClock.ElapsedMilliseconds);
         }
         catch(TemChanStop e)
         {
+            _log.TraceException("EVEN","JOB_HALTED",e,_workClock.ElapsedMilliseconds);
+            _log.Trace("EVEN","PRINT_ISSUED_FLAG","UNCERTAIN",
+                _workClock.ElapsedMilliseconds,"VALUE="+(printIssued?1:0));
             // Explicit operator acknowledgement, no auto retry.
             if(printIssued)
             {
@@ -237,8 +297,9 @@ internal sealed class TemChanPanel : UserControl
             }
             else Alert(e.Message);
         }
-        catch(Exception)
+        catch(Exception ex)
         {
+            _log.TraceException("EVEN","JOB_EXCEPTION",ex,_workClock.ElapsedMilliseconds);
             _uncertain=true;
             _manual.Visible=true;
             _showBrowser();
@@ -246,6 +307,9 @@ internal sealed class TemChanPanel : UserControl
         }
         finally
         {
+            _log.Trace("EVEN","JOB_FINISHED","DONE",_workClock.ElapsedMilliseconds,
+                "UNCERTAIN="+(_uncertain?1:0));
+            _workClock.Stop();
             _busy=false;
             _so.Enabled=!_uncertain;
             if(!_uncertain)FocusSo();
