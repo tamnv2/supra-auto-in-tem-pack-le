@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -19,6 +21,7 @@ internal sealed record HistoryRow(string Date, string Start, string End, long Se
     public decimal? Points { get; init; }
 }
 internal sealed record DiagRow(string At, string Version, string Stage, string Event, string Outcome, long ElapsedMs, string Detail);
+internal sealed record DiagnosticExportResult(string Path,int ExportedFiles,int DeletedFiles);
 
 internal sealed class LocalStore
 {
@@ -26,6 +29,9 @@ internal sealed class LocalStore
     private string PeoplePath => Path.Combine(Root,"people.json");
     private string HistoryPath => Path.Combine(Root,"history.jsonl");
     private string Logs => Path.Combine(Root,"logs");
+    // Also used by the global UI exception handler, which creates another
+    // LocalStore instance. No append/delete race within the process.
+    private static readonly object LogGate=new();
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
     private static readonly string[] AcceptedHistoryDates =
     [
@@ -162,36 +168,153 @@ internal sealed class LocalStore
         }
     }
     private static readonly Regex Code = new("^[A-Z0-9_]{1,60}$",RegexOptions.Compiled);
-    private static readonly Regex DetailCode = new("^[A-Z0-9_=,;|.:-]{0,220}$",RegexOptions.Compiled);
+    // Details are codes or NUMERIC UI counters only. Never record arbitrary
+    // strings from WebView2, exception messages, form inputs, URLs or sessions.
+    private static readonly Regex DetailCode = new(
+        @"^(?:[A-Z][A-Z0-9_]{1,59}|[A-Z_]{1,24}=[0-9]{1,9}(?:;[A-Z_]{1,24}=[0-9]{1,9})*)$",
+        RegexOptions.Compiled);
+    private static readonly Regex SensitiveMarker = new(
+        "PASSWORD|TOKEN|COOKIE|SECRET|SESSION|CREDENTIAL|AUTHORIZATION|BEARER|API_KEY",
+        RegexOptions.IgnoreCase|RegexOptions.Compiled);
+    private static string SafeDetail(string value) =>
+        !string.IsNullOrEmpty(value) && value.Length<=220 &&
+        DetailCode.IsMatch(value) && !SensitiveMarker.IsMatch(value)
+        ? value : "REDACTED";
+    private static string SafeErrorType(Exception exception)
+    {
+        var name=exception.GetType().Name.ToUpperInvariant();
+        return Code.IsMatch(name) && !SensitiveMarker.IsMatch(name)?name:"UNKNOWN_EXCEPTION";
+    }
+    public void TraceException(string stage,string evt,Exception exception,long elapsed=0)
+    {
+        // Exception.Message, stack text, TargetSite path and InnerException are
+        // intentionally never serialized; they may embed WMS or SSO secrets.
+        Trace(stage,evt,"ERROR",elapsed,"TYPE_"+SafeErrorType(exception));
+    }
+    private string LogPathForAppend()
+    {
+        var day=DateTime.Now.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+        var path=Path.Combine(Logs,day+".jsonl");
+        if(!File.Exists(path)||new FileInfo(path).Length<20_000_000)return path;
+        // Roll instead of silently dropping errors after 20MB.
+        for(var index=1;index<int.MaxValue;index++)
+        {
+            path=Path.Combine(Logs,day+"_"+index.ToString("D4",CultureInfo.InvariantCulture)+".jsonl");
+            if(!File.Exists(path)||new FileInfo(path).Length<20_000_000)return path;
+        }
+        throw new IOException("DIAGNOSTIC_LOG_ROTATION_EXHAUSTED");
+    }
     public void Trace(string stage,string evt,string outcome,long elapsed=0,string detail="")
     {
         stage=Code.IsMatch(stage)?stage:"UNSPECIFIED";
         evt=Code.IsMatch(evt)?evt:"UNSPECIFIED";
         outcome=Code.IsMatch(outcome)?outcome:"UNKNOWN";
-        detail=DetailCode.IsMatch(detail)?detail:"REDACTED";
+        detail=SafeDetail(detail);
         try
         {
-            var f=Path.Combine(Logs,DateTime.Now.ToString("yyyy-MM-dd")+".jsonl");
-            if(File.Exists(f)&&new FileInfo(f).Length>20_000_000) return;
-            File.AppendAllText(f,JsonSerializer.Serialize(new DiagRow(
-                DateTimeOffset.Now.ToString("O"),Application.ProductVersion,stage,evt,outcome,
-                Math.Max(0,elapsed),detail),Json)+"\n",new UTF8Encoding(false));
+            lock(LogGate)
+            {
+                File.AppendAllText(LogPathForAppend(),JsonSerializer.Serialize(new DiagRow(
+                    DateTimeOffset.Now.ToString("O"),Application.ProductVersion,stage,evt,outcome,
+                    Math.Max(0,elapsed),detail),Json)+"\n",new UTF8Encoding(false));
+            }
         }
-        catch {}
+        catch { /* Logging must never interrupt packing or printing. */ }
     }
+    private static readonly string ExportReadme =
+        "SUPRA 1.8.9: Technical diagnostics only. Codes, timing, exception TYPES "+
+        "and numeric DOM counts. Never includes account/password/token/cookie, "+
+        "session, raw SO/DO/Tote, staff names, HTML or HTTP traffic. "+
+        "The separate opt-in WMS action recorder is NOT exported here.";
+    // Legacy API is kept for tests/optional archival use; no automatic purge.
     public void ExportLogs(string zip,DateTime? from,DateTime? to)
     {
-        using var output=ZipFile.Open(zip,ZipArchiveMode.Create);
-        foreach(var file in Directory.GetFiles(Logs,"????-??-??.jsonl"))
+        lock(LogGate)
         {
-            var dateText=Path.GetFileNameWithoutExtension(file);
-            if(!DateTime.TryParseExact(dateText,"yyyy-MM-dd",null,System.Globalization.DateTimeStyles.None,out var date))continue;
-            if(from.HasValue && date.Date<from.Value.Date)continue;
-            if(to.HasValue && date.Date>to.Value.Date)continue;
-            output.CreateEntryFromFile(file,"logs/"+Path.GetFileName(file),CompressionLevel.Optimal);
+            using var output=ZipFile.Open(zip,ZipArchiveMode.Create);
+            foreach(var file in Directory.GetFiles(Logs,"*.jsonl"))
+            {
+                var stem=Path.GetFileNameWithoutExtension(file);
+                if(stem.Length<10 ||
+                   !DateTime.TryParseExact(stem[..10],"yyyy-MM-dd",CultureInfo.InvariantCulture,
+                     DateTimeStyles.None,out var date))continue;
+                if(from.HasValue && date.Date<from.Value.Date)continue;
+                if(to.HasValue && date.Date>to.Value.Date)continue;
+                output.CreateEntryFromFile(file,"logs/"+Path.GetFileName(file),CompressionLevel.Optimal);
+            }
+            using var writer=new StreamWriter(output.CreateEntry("README.txt").Open(),Encoding.UTF8);
+            writer.Write(ExportReadme);
         }
-        using var writer=new StreamWriter(output.CreateEntry("README.txt").Open(),Encoding.UTF8);
-        writer.Write("Chỉ log kỹ thuật allowlist. Không chứa Tote, SO/DO, nhân sự, mật khẩu, token, cookie hay HTTP header.");
+    }
+    /// <summary>
+    /// Exports ALL local diagnostic JSONL to Desktop. Delete a source file only
+    /// after final ZIP is durable, reopened, and SHA-256 verified entry-by-entry.
+    /// Never touches history.jsonl, people.json, browser profile or recordings.
+    /// </summary>
+    public DiagnosticExportResult ExportAllLogsToDesktopAndPurge(string? desktopOverride=null)
+    {
+        var desktop=desktopOverride ?? Environment.GetFolderPath(
+            Environment.SpecialFolder.DesktopDirectory);
+        if(string.IsNullOrWhiteSpace(desktop)||!Directory.Exists(desktop))
+            throw new DirectoryNotFoundException("DESKTOP_NOT_AVAILABLE");
+        lock(LogGate)
+        {
+            var sources=Directory.GetFiles(Logs,"*.jsonl").OrderBy(x=>x,StringComparer.Ordinal).ToArray();
+            if(sources.Length==0)throw new InvalidOperationException("NO_TECHNICAL_LOGS_TO_EXPORT");
+            var filename="SUPRA_Technical_"+DateTime.Now.ToString("yyyyMMdd_HHmmss_fff",
+                CultureInfo.InvariantCulture)+"_"+Guid.NewGuid().ToString("N")[..8]+".zip";
+            var final=Path.Combine(desktop,filename);
+            var partial=final+".partial";
+            var hashes=new Dictionary<string,string>(StringComparer.Ordinal);
+            try
+            {
+                using(var stream=new FileStream(partial,FileMode.CreateNew,FileAccess.ReadWrite,FileShare.None))
+                using(var archive=new ZipArchive(stream,ZipArchiveMode.Create,leaveOpen:false))
+                {
+                    foreach(var source in sources)
+                    {
+                        var entryName="logs/"+Path.GetFileName(source);
+                        using(var original=File.OpenRead(source))
+                            hashes.Add(entryName,Convert.ToHexString(SHA256.HashData(original)));
+                        archive.CreateEntryFromFile(source,entryName,CompressionLevel.Optimal);
+                    }
+                    using var writer=new StreamWriter(archive.CreateEntry("README.txt").Open(),
+                        new UTF8Encoding(false));
+                    writer.Write(ExportReadme);
+                }
+                // Verify the staged ZIP and FINAL file before deleting anything.
+                VerifyExport(partial,hashes);
+                File.Move(partial,final);
+                VerifyExport(final,hashes);
+                var deleted=0;
+                foreach(var source in sources)
+                {
+                    try { File.Delete(source);if(!File.Exists(source))deleted++; }
+                    catch(IOException){}
+                    catch(UnauthorizedAccessException){}
+                }
+                return new DiagnosticExportResult(final,sources.Length,deleted);
+            }
+            finally { try { if(File.Exists(partial))File.Delete(partial); } catch {} }
+        }
+    }
+    private static void VerifyExport(string file,Dictionary<string,string> hashes)
+    {
+        if(!File.Exists(file)||new FileInfo(file).Length==0)
+            throw new IOException("DIAGNOSTIC_ZIP_NOT_DURABLE");
+        using var zip=ZipFile.OpenRead(file);
+        if(zip.Entries.Count!=hashes.Count+1 ||
+           zip.GetEntry("README.txt")==null)
+            throw new InvalidDataException("DIAGNOSTIC_ZIP_ENTRIES_MISMATCH");
+        foreach(var (name,hash) in hashes)
+        {
+            var entry=zip.GetEntry(name) ??
+                throw new InvalidDataException("DIAGNOSTIC_ZIP_ENTRY_MISSING");
+            using var stream=entry.Open();
+            if(!string.Equals(Convert.ToHexString(SHA256.HashData(stream)),hash,
+                StringComparison.Ordinal))
+                throw new InvalidDataException("DIAGNOSTIC_ZIP_HASH_MISMATCH");
+        }
     }
     public static string ResultLabel(string? result) => result switch
     {

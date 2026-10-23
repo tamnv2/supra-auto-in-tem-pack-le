@@ -122,6 +122,44 @@ internal static class StartupSmoke
             using(var archive=ZipFile.OpenRead(zip))
                 if(!archive.Entries.Any(e=>e.FullName.StartsWith("logs/")))
                     throw new Exception("DIAGNOSTIC_ZIP_EMPTY");
+            // Export+purge: verified ZIP on Desktop, delete only exported
+            // technical JSONL. Never delete business history or staff.
+            var safeDesktop=Path.Combine(tmp,"desktop");Directory.CreateDirectory(safeDesktop);
+            store.Trace("TEST","BEFORE_PURGE","DONE",1,"COUNT=1");
+            var report=store.ExportAllLogsToDesktopAndPurge(safeDesktop);
+            if(report.ExportedFiles<1||report.ExportedFiles!=report.DeletedFiles||
+                !File.Exists(report.Path)||
+                Directory.GetFiles(Path.Combine(tmp,"logs"),"*.jsonl").Length!=0)
+                throw new Exception("DIAGNOSTIC_VERIFIED_PURGE_FAILED");
+            using(var saved=ZipFile.OpenRead(report.Path))
+                if(!saved.Entries.Any(e=>e.FullName.StartsWith("logs/")) ||
+                   !saved.Entries.Any(e=>e.FullName=="README.txt"))
+                    throw new Exception("DIAGNOSTIC_EXPORT_UNREADABLE");
+            if(!File.Exists(Path.Combine(tmp,"history.jsonl"))||
+               !File.Exists(Path.Combine(tmp,"people.json")))
+                throw new Exception("DIAGNOSTIC_PURGE_TOUCHED_BUSINESS_DATA");
+            store.TraceException("TEST","EXCEPTION_TEST",
+                new InvalidOperationException("password=SHOULD_NEVER_APPEAR"));
+            var unsafeDest=Path.Combine(tmp,"not_a_directory.txt");
+            File.WriteAllText(unsafeDest,"not a folder");
+            try
+            {
+                store.ExportAllLogsToDesktopAndPurge(unsafeDest);
+                throw new Exception("INVALID_DESKTOP_WAS_ACCEPTED");
+            }
+            catch(DirectoryNotFoundException) {}
+            if(Directory.GetFiles(Path.Combine(tmp,"logs"),"*.jsonl").Length==0)
+                throw new Exception("FAILED_EXPORT_ERASED_SOURCE");
+            var protectedLog=File.ReadAllText(Directory.GetFiles(
+                Path.Combine(tmp,"logs"),"*.jsonl").Single());
+            if(protectedLog.Contains("SHOULD_NEVER_APPEAR",StringComparison.Ordinal))
+                throw new Exception("EXCEPTION_MESSAGE_LEAKED");
+            store.Trace("TEST","REDACTION_TEST","ERROR",0,"SESSION_SECRET");
+            var newLog=string.Join("\n",Directory.GetFiles(Path.Combine(tmp,"logs"),"*.jsonl")
+                .Select(File.ReadAllText));
+            if(newLog.Contains("SESSION_SECRET",StringComparison.Ordinal) ||
+               !newLog.Contains("REDACTED",StringComparison.Ordinal))
+                throw new Exception("AUTH_SESSION_MARKER_LEAKED");
             if(!WmsWorkflowJs.Script.Contains("COUNT_BLUR_MISMATCH")||
                !WmsWorkflowJs.Script.Contains("NO")||
                !WmsWorkflowJs.Script.Contains("ĐÓNG GÓI HÀNG CHẴN"))

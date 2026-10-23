@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text.Json;
 using System.Windows.Forms;
 
 namespace SupraAutoPackLe;
@@ -24,6 +22,16 @@ internal static class Program
             }
             return;
         }
+        // Capture fatal and async task failures as exception TYPE only.
+        // Never write messages, paths, browser state, credentials or stack text.
+        AppDomain.CurrentDomain.UnhandledException+=(_,e)=>{
+            if(e.ExceptionObject is Exception ex)SaveUiDiagnostic(ex);
+            else new LocalStore().Trace("APP","FATAL_UNKNOWN","ERROR");
+        };
+        TaskScheduler.UnobservedTaskException+=(_,e)=>{
+            SaveUiDiagnostic(e.Exception);
+            e.SetObserved();
+        };
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => {
             SaveUiDiagnostic(e.Exception);
@@ -35,26 +43,7 @@ internal static class Program
     }
     private static void SaveUiDiagnostic(Exception exception)
     {
-        try
-        {
-            var root=Path.Combine(Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData),"SupraAutoPackLe","logs");
-            Directory.CreateDirectory(root);
-            // Only exception type and managed method names. No stack file paths,
-            // messages, user inputs, business data, passwords or auth tokens.
-            var methods=new StackTrace(exception,false).GetFrames()?
-                .Take(8).Select(frame=>{
-                    var method=frame.GetMethod();
-                    return (method?.DeclaringType?.Name??"Unknown")+"."+
-                        (method?.Name??"Unknown");
-                }).ToArray() ?? [];
-            var record=JsonSerializer.Serialize(new {
-                at=DateTimeOffset.Now.ToString("O"), kind="UI_EXCEPTION",
-                type=exception.GetType().Name, methods
-            });
-            File.AppendAllText(Path.Combine(root,DateTime.Now.ToString("yyyy-MM-dd")+".jsonl"),
-                record+Environment.NewLine);
-        }
-        catch { /* Never let diagnostic logging cause another UI exception. */ }
+        try { new LocalStore().TraceException("APP","UI_EXCEPTION",exception); }
+        catch { /* Error reporting must not cause a second UI exception. */ }
     }
 }
