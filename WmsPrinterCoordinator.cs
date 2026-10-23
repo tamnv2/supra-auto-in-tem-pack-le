@@ -51,12 +51,18 @@ internal static class WmsPrinterCoordinator
         }
         progress("WMS đã sẵn sàng. Mở Thiết lập máy in.");
         var initial=await WaitAsync(browser,active,
-            p=>p.accountTriggerCount==1 && !p.printerDialog,
-            "Không nhận diện được menu tài khoản WMS",25);
-        await ActionAsync(browser,active,"ACCOUNT_OPEN");
-        await WaitAsync(browser,active,p=>p.settingsVisible,
-            "Không thấy lệnh Thiết lập máy in",12);
-        await ActionAsync(browser,active,"PRINTER_MENU");
+            p=>p.accountTriggerCount==1 &&
+                (p.printerDialog || p.blockingDialogCount==0),
+            "WMS đang có hộp thoại khác chưa được đóng",25);
+        // The operator may already have opened CHỌN MÁY IN. Never reopen
+        // the account menu on top of an existing printer dialog.
+        if(!initial.printerDialog)
+        {
+            await ActionAsync(browser,active,"ACCOUNT_OPEN");
+            await WaitAsync(browser,active,p=>p.settingsVisible,
+                "Không thấy lệnh Thiết lập máy in",12);
+            await ActionAsync(browser,active,"PRINTER_MENU");
+        }
         var opened=await WaitAsync(browser,active,
             p=>p.printerDialog&&p.fieldReady,
             "Hộp thoại chọn máy in chưa sẵn sàng",15);

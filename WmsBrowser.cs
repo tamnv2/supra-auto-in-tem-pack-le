@@ -49,6 +49,7 @@ internal sealed class PrinterSetupPeek
     public string reason {get;set;}="";
     public bool printerDialog {get;set;}
     public bool fieldReady {get;set;}
+    public int blockingDialogCount {get;set;}
     public string currentPrinter {get;set;}="";
     public int accountTriggerCount {get;set;}
     public bool settingsVisible {get;set;}
