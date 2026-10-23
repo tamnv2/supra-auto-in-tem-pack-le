@@ -69,6 +69,7 @@ internal sealed class TemChanPanel : UserControl
         wrap.Controls.Add(_steps);
         shell.Controls.Add(wrap,0,4);
         Controls.Add(shell);
+        HandleCreated+=(_,_)=>FocusSo();
         _so.KeyDown += async (_,e) => {
             if(e.KeyCode==Keys.Enter) { e.SuppressKeyPress=true; await RunAsync(); }
         };
@@ -90,9 +91,13 @@ internal sealed class TemChanPanel : UserControl
 
     public void FocusSo()
     {
-        if(_busy||_uncertain||IsDisposed)return;
+        // A tab can be inserted/selected before this UserControl has its first
+        // native HWND. Calling BeginInvoke on it then throws InvalidOperationException
+        // and used to show the generic "Lỗi giao diện" modal.
+        if(_busy||_uncertain||IsDisposed || !IsHandleCreated || !Visible)return;
         BeginInvoke(new Action(() => {
-            if(!IsDisposed && !_busy && !_uncertain && _so.Enabled)
+            if(!IsDisposed && IsHandleCreated && Visible &&
+               !_busy && !_uncertain && _so.Enabled && _so.IsHandleCreated)
             {_so.Focus();_so.SelectAll();}
         }));
     }
