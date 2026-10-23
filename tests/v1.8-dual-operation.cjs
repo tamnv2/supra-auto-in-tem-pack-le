@@ -26,7 +26,7 @@ assert.match(panel, /_so\.KeyDown/);
 assert.doesNotMatch(panel, /TryAppendHistory|HistoryRow|ExportXlsx|SaveHistory/);
 
 function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
-  begin='1', end='4', prints=1, confirmButtons=1}={}) {
+  begin='1', end='4', prints=1, confirmButtons=1, decorative=[]}={}) {
   const so='SOABC12345';
   let activeTab=false, dialogOpen=false, commandCount=0;
   const css={display:'block',visibility:'visible'};
@@ -62,6 +62,7 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
   const statusEl=make({tagName:'DIV'});
   const nodes=[
     {textContent:'Trạng thái:',parentElement:statusEl},
+    ...decorative.map(textContent=>({textContent,parentElement:statusEl})),
     {textContent:status,parentElement:statusEl},
     {textContent:'Thông tin kiện hàng',parentElement:statusEl}
   ];
@@ -108,6 +109,13 @@ for(const total of ['1.5','0','-2']){
   const f=fixture({total});
   f.api.perform('TAB',f.so);f.api.perform('OPEN_PRINT',f.so);
   assert.equal(f.api.peek(f.so).rangeValid,false,'total='+total);
+}
+{
+  // Regression: WMS may render decorative/help text between the field caption
+  // and the green status value. Old code used only the first following text.
+  const f=fixture({decorative:[' ','?', '•']});
+  assert.equal(f.api.peek(f.so).statusValid,true);
+  assert.equal(f.api.peek(f.so).statusKnown,true);
 }
 {
   const f=fixture({status:'Đang đóng gói'});
