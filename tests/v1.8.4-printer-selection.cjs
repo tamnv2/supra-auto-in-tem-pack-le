@@ -44,6 +44,10 @@ function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)'
   const accountButton=make('',()=>{account=true;});
   const menu=make('printer Thiết lập máy in',()=>{account=false;modal=true;input.value=saved;current=saved;expanded=false;});
   const doc={
+    querySelector:q=>{
+      const result=doc.querySelectorAll(q);
+      return result.length?result[0]:null;
+    },
     querySelectorAll:q=>{
       if(q.includes('mat-dialog-container'))return modal?[dialog]:[];
       if(q.includes('mat-toolbar#app-header'))return [accountButton];
