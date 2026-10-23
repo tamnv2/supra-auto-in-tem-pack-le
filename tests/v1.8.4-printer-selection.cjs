@@ -19,6 +19,9 @@ assert.match(coordinator,/if\(!initial\.printerDialog\)/);
 assert.match(main,/_activeTemChanPrinterSetupGeneration/);
 assert.match(script,/blockingDialogCount/);
 assert.match(script,/f\.focus\(\)/);
+assert.match(script,/f\.dispatchEvent\(new Event\('input'/);
+assert.match(script,/f\.value!==''/);
+assert.match(coordinator,/Always select an actual/);
 assert.match(coordinator,/ActionAsync\(browser,active,"CLOSE",choice\)/);
 
 function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)',alreadyOpen=false){
@@ -31,10 +34,16 @@ function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)'
   });
   const input=make('');
   input.tagName='INPUT';input.value=original;
-  // Angular autocomplete opens on focus, while a JS .click alone may not.
-  input.focus=()=>{expanded=true;};
+  // Recreate the field regression: a pre-selected printer filters the
+  // autocomplete to zero visible options. Only clearing the QUERY and
+  // emitting input opens the entire list.
+  input.setAttribute=()=>{};
+  input.getAttribute=(name)=>name==='role'?'combobox':name==='aria-expanded'?(expanded?'true':'false'):null;
+  input.focus=()=>{};
   input.click=()=>{};
-  input.dispatchEvent=()=>{};
+  input.dispatchEvent=event=>{
+    if(event.type==='input'){expanded=input.value==='';current=input.value;}
+  };
   const options=names.map(name=>{
     const x=make(name,()=>{current=name;input.value=name;expanded=false;});
     x.tagName='MAT-OPTION';return x;
@@ -78,7 +87,9 @@ for(const page of ['/sft3/app/saleorder/list','/sft3/app/saleorder/packing']){
   assert.equal(api.peek().settingsVisible,true);
   assert.equal(api.perform('PRINTER_MENU').ok,true);
   assert.equal(api.peek().currentPrinter,'21-1129-D28 (Online)');
+  assert.equal(api.peek().options.length,0);
   assert.equal(api.perform('EXPAND').ok,true);
+  assert.equal(api.peek().currentPrinter,'');
   assert.equal(api.peek().scanDone,true);
   assert.equal(api.peek().options.length,3);
   assert.equal(api.peek().blockingDialogCount,0);
@@ -102,6 +113,11 @@ for(const page of ['/sft3/app/saleorder/list','/sft3/app/saleorder/packing']){
   const f=fixture(),api=f.api;
   api.perform('ACCOUNT_OPEN');api.perform('PRINTER_MENU');api.perform('EXPAND');
   assert.equal(api.peek().options.length,3);
+  // The empty query must be restored by selecting the SAME actual WMS
+  // mat-option before using Close, never by assuming the former value persisted.
+  assert.equal(api.peek().currentPrinter,'');
+  assert.equal(api.perform('PICK','21-1129-D28 (Online)').ok,true);
+  assert.equal(api.peek().currentPrinter,'21-1129-D28 (Online)');
   // Explicitly choosing the unchanged printer must close; disabled Confirm isn't clicked.
   assert.equal(api.peek().confirmEnabled,false);
   assert.equal(api.perform('CLOSE','21-1129-D28 (Online)').ok,true);
