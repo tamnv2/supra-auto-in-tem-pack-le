@@ -14,6 +14,7 @@ internal sealed class TemChanPanel : UserControl
     private readonly Stopwatch _workClock=new();
     private readonly Action _showBrowser;
     private readonly Action _hideBrowser;
+    private readonly Action _manualReadyAcknowledged;
     private readonly TextBox _so = new() { Font=new Font("Segoe UI",23,FontStyle.Bold),
         CharacterCasing=CharacterCasing.Upper,Width=400,Dock=DockStyle.Fill };
     private readonly RichTextBox _steps = new() { ReadOnly=true, Dock=DockStyle.Fill,
@@ -22,13 +23,18 @@ internal sealed class TemChanPanel : UserControl
         Dock=DockStyle.Fill,BackColor=Color.FromArgb(30,102,175),ForeColor=Color.White };
     private readonly Button _manual = new() { Text="ĐÃ KIỂM TRA WMS · MỞ KHÓA",Height=48,
         Dock=DockStyle.Fill,Visible=false };
+    private readonly Button _supraReady = new() { Text="SUPRA SẴN SÀNG",Height=48,
+        Dock=DockStyle.Fill,BackColor=Color.FromArgb(26,120,77),
+        ForeColor=Color.White,Font=new Font("Segoe UI",11,FontStyle.Bold) };
     private readonly Label _state = new() { Text="SẴN SÀNG · Nhập mã SO và nhấn Enter",
         Dock=DockStyle.Fill,Font=new Font("Segoe UI",12,FontStyle.Bold),
         TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true };
     private static readonly Regex SoFormat = new("^[A-Z0-9_-]{5,50}$",RegexOptions.Compiled);
     private bool _busy;
     private bool _printerReady;
+    private bool _manualPrinterApproval;
     public bool PrinterReady=>_printerReady;
+    public bool OperatorReady=>_manualPrinterApproval;
     public void PrinterProgress(string message)
     {
         if(IsDisposed)return;
@@ -38,7 +44,9 @@ internal sealed class TemChanPanel : UserControl
     public void SetPrinterReady(bool ready,string printer="")
     {
         _printerReady=ready;
+        _manualPrinterApproval=false;
         if(IsDisposed)return;
+        _supraReady.Visible=!ready&&!_busy&&!_uncertain;
         _so.Enabled=ready&&!_busy&&!_uncertain;
         if(ready)
         {
@@ -57,9 +65,11 @@ internal sealed class TemChanPanel : UserControl
     public bool NeedsManualReview=>_uncertain;
     public bool BrowserIsShown {get;set;}
 
-    public TemChanPanel(WmsBrowser browser,Action showBrowser,Action hideBrowser,LocalStore log)
+    public TemChanPanel(WmsBrowser browser,Action showBrowser,Action hideBrowser,
+        LocalStore log,Action manualReadyAcknowledged)
     {
-        _browser=browser;_showBrowser=showBrowser;_hideBrowser=hideBrowser;_log=log;
+        _browser=browser;_showBrowser=showBrowser;_hideBrowser=hideBrowser;
+        _log=log;_manualReadyAcknowledged=manualReadyAcknowledged;
         Dock=DockStyle.Fill;BackColor=Color.FromArgb(247,249,252);
         var shell = new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(24,20,24,20),
             ColumnCount=1,RowCount=5 };
@@ -86,11 +96,13 @@ internal sealed class TemChanPanel : UserControl
         row.Controls.Add(hint,1,1);
         shell.Controls.Add(row,0,1);
         shell.Controls.Add(_state,0,2);
-        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1 };
-        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
-        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3,RowCount=1 };
+        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,40));
+        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
+        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
         commands.Controls.Add(_browserToggle,0,0);
-        commands.Controls.Add(_manual,1,0);
+        commands.Controls.Add(_supraReady,1,0);
+        commands.Controls.Add(_manual,2,0);
         shell.Controls.Add(commands,0,3);
         var wrap=new Panel { Dock=DockStyle.Fill,Padding=new Padding(14),BackColor=Color.White };
         wrap.Controls.Add(_steps);
@@ -103,6 +115,29 @@ internal sealed class TemChanPanel : UserControl
             if(e.KeyCode==Keys.Enter) { e.SuppressKeyPress=true; await RunAsync(); }
         };
         _browserToggle.Click+=(_,_)=>{if(BrowserIsShown)_hideBrowser();else _showBrowser();};
+        _supraReady.Click+=(_,_)=> {
+            if(IsDisposed||_busy||_uncertain||_printerReady)return;
+            if(!_browser.Ready)
+            {
+                _log.Trace("EVEN","MANUAL_READY_BROWSER_UNAVAILABLE","BLOCKED");
+                MessageBox.Show(this,"Trình duyệt WMS chưa khởi tạo. Hãy mở WMS trước.",
+                    "Chưa sẵn sàng",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
+            }
+            if(MessageBox.Show(this,
+                "Xác nhận anh đã đăng nhập WMS và tự kiểm tra/thiết lập máy in phù hợp.\n\n"+
+                "Bỏ qua bước phần mềm tự chọn máy in để mở ô nhập SO. "+
+                "Lệnh in sẽ chỉ được gửi sau khi anh nhập SO và WMS vượt qua "+
+                "kiểm tra trạng thái đơn, phạm vi kiện và nút in.\n\n"+
+                "Phần mềm không xác nhận máy in vật lý đã hoạt động. Tiếp tục?",
+                "SUPRA SẴN SÀNG · Xác nhận thủ công",
+                MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)
+            {
+                _log.Trace("EVEN","MANUAL_READY_DECLINED","BLOCKED");
+                return;
+            }
+            AcceptManualReady();
+        };
         _manual.Click+=(_,_)=> {
             if(!_uncertain || _busy)return;
             if(MessageBox.Show(this,
@@ -110,13 +145,32 @@ internal sealed class TemChanPanel : UserControl
                 "và sẽ không tự in lại SO cũ?\n\nChỉ mở khóa để nhập SO mới, không gửi lại lệnh in.",
                 "Xác nhận kiểm tra WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)
                 return;
-            _uncertain=false;_manual.Visible=false;_so.Enabled=true;
+            _uncertain=false;_manual.Visible=false;_so.Enabled=_printerReady;
+            _supraReady.Visible=!_printerReady;
             _log.Trace("EVEN","MANUAL_REVIEW_ACCEPTED","DONE");
             Step("Đã xác nhận xử lý thủ công. Có thể nhập SO tiếp theo.");
             _state.Text="SẴN SÀNG · Đã kiểm tra WMS";
             FocusSo();
         };
         Step("Ứng dụng kiểm tra trạng thái SO, số thùng nguyên dương và phạm vi in trước khi gửi lệnh.");
+    }
+
+    // Called only after the operator confirms the explicit WMS responsibility
+    // dialog. Acknowledgment bypasses PRINTER SETUP only, never SO status,
+    // carton-range or exactly-once print safeguards.
+    private void AcceptManualReady()
+    {
+        if(_busy||_uncertain||_printerReady||IsDisposed)return;
+        _manualReadyAcknowledged(); // cancel any superseded automatic setup first
+        _manualPrinterApproval=true;
+        _printerReady=true;
+        _supraReady.Visible=false;
+        _so.Enabled=true;
+        _state.Text="SUPRA SẴN SÀNG · Đã xác nhận thủ công · Nhập SO và Enter";
+        Step("Đã xác nhận WMS thủ công. Bỏ qua tự chọn máy in; WMS vẫn kiểm tra từng SO.");
+        _log.Trace("EVEN","OPERATOR_MANUAL_READY","DONE");
+        _hideBrowser();
+        FocusSo();
     }
 
     public void FocusSo()
@@ -234,7 +288,7 @@ internal sealed class TemChanPanel : UserControl
         }
         _workClock.Restart();
         _log.Trace("EVEN","JOB_STARTED","DONE");
-        _busy=true;_so.Enabled=false;_manual.Visible=false;
+        _busy=true;_so.Enabled=false;_manual.Visible=false;_supraReady.Visible=false;
         bool printIssued=false;
         try
         {
@@ -311,7 +365,8 @@ internal sealed class TemChanPanel : UserControl
                 "UNCERTAIN="+(_uncertain?1:0));
             _workClock.Stop();
             _busy=false;
-            _so.Enabled=!_uncertain;
+            _so.Enabled=_printerReady&&!_uncertain;
+            _supraReady.Visible=!_printerReady&&!_uncertain;
             if(!_uncertain)FocusSo();
         }
     }
