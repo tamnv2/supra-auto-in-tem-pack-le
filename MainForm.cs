@@ -108,6 +108,9 @@ public sealed class MainForm : Form
         Activated+=(_,_)=>{if(_tabs.SelectedTab==_operationTab&&!_busy&&!_needsRecovery&&_tote.Enabled)_tote.Focus();};
         Status("INIT","Mở cửa sổ WMS, đăng nhập và chọn máy in trước khi dùng.");
         Shown+=async (_,_)=>{
+            // The Windows UI smoke shows/pumps the form without starting WMS or
+            // opening the startup dialog. Production always shows the chooser.
+            if(Environment.GetCommandLineArgs().Contains("--mode-ui-smoke"))return;
             using(var choice=BuildStartupChoice())
             {
                 choice.ShowDialog(this);
@@ -160,20 +163,41 @@ public sealed class MainForm : Form
     }
     internal static int RunModeTransitionSmoke()
     {
-        // Windows CI exercises the actual TabControl transitions without WMS
-        // navigation or printing. This catches pre-HWND BeginInvoke regressions.
-        using var form=new MainForm();
-        _=form.Handle;
-        form.SwitchOperation(true,true);
-        if(form._tabs.SelectedTab!=form._temChanTab)return 11;
-        form._tabs.SelectedTab=form._settingsTab;
-        form.SwitchOperation(false);
-        if(form._tabs.SelectedTab!=form._operationTab)return 12;
-        form._tabs.SelectedTab=form._settingsTab;
-        form.SwitchOperation(true);
-        if(form._tabs.SelectedTab!=form._temChanTab)return 13;
-        form._temChanPanel?.FocusSo();
-        return 0;
+        // Pump a real WinForms message loop on the Windows runner. The previous
+        // smoke never made the form visible and missed focus/TabPage lifecycle bugs.
+        var asynchronousErrors=0;
+        System.Threading.ThreadExceptionEventHandler handler=(_,_)=>asynchronousErrors++;
+        Application.ThreadException+=handler;
+        try
+        {
+            using var form=new MainForm();
+            form.Show();
+            Application.DoEvents();
+            for(var i=0;i<5;i++)
+            {
+                form.SwitchOperation(true,initial:i==0);
+                Application.DoEvents();
+                if(form._tabs.SelectedTab!=form._temChanTab)return 11;
+                form._tabs.SelectedTab=form._settingsTab;
+                Application.DoEvents();
+                form.SwitchOperation(false);
+                Application.DoEvents();
+                if(form._tabs.SelectedTab!=form._operationTab)return 12;
+                form._tabs.SelectedTab=form._settingsTab;
+                Application.DoEvents();
+            }
+            form.SwitchOperation(true);
+            Application.DoEvents();
+            if(form._tabs.SelectedTab!=form._temChanTab)return 13;
+            form._temChanPanel?.FocusSo();
+            Application.DoEvents();
+            form.Close();
+            return asynchronousErrors==0?0:14;
+        }
+        finally
+        {
+            Application.ThreadException-=handler;
+        }
     }
 
     private Form BuildStartupChoice()
