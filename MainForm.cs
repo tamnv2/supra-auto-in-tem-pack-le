@@ -354,6 +354,9 @@ public sealed class MainForm : Form
         _tabs.ItemSize=new Size(190,50);
         _tabs.DrawItem+=(_,e)=>
         {
+            // Owner-draw is occasionally invoked with a stale tab index while a
+            // dynamic TabPage has just been removed. Never index TabPages blindly.
+            if(e.Index<0 || e.Index>=_tabs.TabPages.Count || _tabs.IsDisposed)return;
             var selected=e.Index==_tabs.SelectedIndex;
             var area=e.Bounds;
             using var bg=new SolidBrush(selected?_navy:Color.FromArgb(231,237,245));
