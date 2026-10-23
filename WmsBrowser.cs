@@ -49,9 +49,73 @@ internal sealed class BrowserResult
     public string reason {get;set;}="";
 }
 
+internal sealed class TemChanPeek
+{
+    public bool ok {get;set;}
+    public string reason {get;set;}="";
+    public bool statusKnown {get;set;}
+    public bool statusValid {get;set;}
+    public bool tabReady {get;set;}
+    public bool tabSelected {get;set;}
+    public int printCount {get;set;}
+    public bool dialogOpen {get;set;}
+    public bool rangeValid {get;set;}
+    public int total {get;set;}
+    public int begin {get;set;}
+    public int finish {get;set;}
+}
+
 internal sealed class WmsBrowser : UserControl
 {
     private const string Target="https://wms-supra.winmart.vn/sft3/app/saleorder/packing";
+    private const string TemChanList="https://wms-supra.winmart.vn/sft3/app/saleorder/list";
+    private bool _temChanMode;
+    public void SetOperationMode(bool temChan)
+    {
+        _temChanMode=temChan;
+        _startupRouting=!temChan;
+        _startupRedirects=0;
+        if(Ready && _view.CoreWebView2 is not null)
+            _view.CoreWebView2.Navigate(temChan ? TemChanList : Target);
+    }
+    public bool NavigateTemChan(string so)
+    {
+        if(!_temChanMode||!Ready||_view.CoreWebView2 is null ||
+           !System.Text.RegularExpressions.Regex.IsMatch(so,@"^[A-Z0-9_-]{5,50}$"))return false;
+        _view.CoreWebView2.Navigate(
+            "https://wms-supra.winmart.vn/sft3/app/saleorder/details/"+
+            Uri.EscapeDataString(so)+"?PickType=PickOrder");
+        return true;
+    }
+    public async Task<TemChanPeek?> TemChanPeekAsync(string so)
+    {
+        if(!_temChanMode||!Ready||_view.CoreWebView2 is null)return null;
+        try
+        {
+            var core=_view.CoreWebView2;
+            await core.ExecuteScriptAsync(WmsTemChanJs.Script);
+            var result=await core.ExecuteScriptAsync(
+                "window.__supraTemChanV1?.peek("+JsonSerializer.Serialize(so)+
+                ") || {ok:false,reason:'SCRIPT_MISSING'}");
+            return JsonSerializer.Deserialize<TemChanPeek>(result);
+        }
+        catch{return null;}
+    }
+    public async Task<BrowserResult> TemChanPerformAsync(string action,string so)
+    {
+        if(!_temChanMode||!Ready||_view.CoreWebView2 is null)
+            return new(){reason="WMS_NOT_READY"};
+        try
+        {
+            var core=_view.CoreWebView2;
+            await core.ExecuteScriptAsync(WmsTemChanJs.Script);
+            var result=await core.ExecuteScriptAsync(
+                "window.__supraTemChanV1?.perform("+JsonSerializer.Serialize(action)+","+
+                JsonSerializer.Serialize(so)+") || {ok:false,reason:'SCRIPT_MISSING'}");
+            return JsonSerializer.Deserialize<BrowserResult>(result)??new(){reason="INVALID_RESULT"};
+        }
+        catch{return new(){reason="ACTION_DISPATCH_UNCERTAIN"};}
+    }
     private readonly WebView2 _view=new(){Dock=DockStyle.Fill};
     private readonly LocalStore _storage;
     private readonly string _profile;
@@ -105,6 +169,7 @@ internal sealed class WmsBrowser : UserControl
             core.Settings.IsGeneralAutofillEnabled=false;
             await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsWorkflowJs.Script);
             await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsRecorderJs.Script);
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsTemChanJs.Script);
             core.WebMessageReceived+=(_,e)=>
             {
                 if(!_recorder.Active)return;
@@ -157,7 +222,7 @@ internal sealed class WmsBrowser : UserControl
             await core.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.AllSite);
             _storage.Trace("WEB","STARTUP_SITE_SESSION_CLEARED","DONE");
             Ready=true;
-            core.Navigate(Target);
+            core.Navigate(_temChanMode ? TemChanList : Target);
         }
         catch(Exception e)
         {
@@ -220,7 +285,7 @@ internal sealed class WmsBrowser : UserControl
     // the login host, password form or any non-WMS site. Bounded per startup.
     public void TryNavigatePackingAfterLogin()
     {
-        if(!_startupRouting||_startupRedirects>=3)return;
+        if(_temChanMode||!_startupRouting||_startupRedirects>=3)return;
         var core=_view.CoreWebView2;
         if(core==null || !Uri.TryCreate(core.Source,UriKind.Absolute,out var uri))return;
         if(!uri.Scheme.Equals("https",StringComparison.OrdinalIgnoreCase) ||
@@ -263,7 +328,7 @@ internal sealed class WmsBrowser : UserControl
     public void StopStartupRouting()=>_startupRouting=false;
     public void BeginStartupRouting()
     {
-        _startupRouting=true;
+        _startupRouting=!_temChanMode;
         _startupRedirects=0;
     }
     public async Task<BrowserSetupPeek?> SetupPeekAsync()

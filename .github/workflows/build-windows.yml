@@ -44,6 +44,19 @@ jobs:
           $code | Set-Content "$env:RUNNER_TEMP/wms-recorder-check.js" -Encoding utf8
           node --check "$env:RUNNER_TEMP/wms-recorder-check.js"
           if ($LASTEXITCODE -ne 0) { throw 'RECORDER_JS_SYNTAX_ERROR' }
+      - name: Validate in tem chan workflow semantics and syntax
+        shell: pwsh
+        run: |
+          $raw = Get-Content 'WmsTemChanJs.cs' -Raw
+          $start = $raw.IndexOf('"""')
+          $end = $raw.LastIndexOf('"""')
+          if ($start -lt 0 -or $end -le $start) { throw 'TEM_CHAN_JS_MISSING' }
+          $code = $raw.Substring($start + 3, $end - $start - 3)
+          $code | Set-Content "$env:RUNNER_TEMP/wms-tem-chan-check.js" -Encoding utf8
+          node --check "$env:RUNNER_TEMP/wms-tem-chan-check.js"
+          if ($LASTEXITCODE -ne 0) { throw 'TEM_CHAN_JS_SYNTAX_ERROR' }
+          node tests/v1.8-dual-operation.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'TEM_CHAN_REGRESSION_FAILED' }
       - name: Session clearing and safe recorder regressions
         shell: pwsh
         run: |
