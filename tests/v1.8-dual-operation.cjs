@@ -25,6 +25,17 @@ assert.match(form, /BuildOperationSettings/);
 assert.match(form, /SwitchOperation/);
 assert.match(browser, /details\/"/);
 assert.match(panel, /_so\.KeyDown/);
+assert.match(panel, /SUPRA SẴN SÀNG/);
+assert.match(panel, /AcceptManualReady\(\)/);
+assert.match(panel, /_manualReadyAcknowledged\(\)/);
+assert.match(panel, /_so\.Enabled=_printerReady&&!_uncertain/);
+assert.match(panel, /if\(!_printerReady\)/);
+assert.match(form, /OnEvenManualReadyAcknowledged/);
+assert.match(form, /EVEN_MANUAL_OVERRIDE/);
+assert.match(form, /LOGIN_REQUIRES_MANUAL_READY/);
+// Only a deliberate Settings retry may invoke the automatic in-tem-chẵn
+// printer coordinator; do not start it at login, startup or mode switch.
+assert.equal((form.match(/RunTemChanPrinterSetupAsync\(/g)||[]).length,2);
 assert.doesNotMatch(panel, /BeginInvoke\(new Action/);
 assert.match(script,/dialogReason/);
 assert.doesNotMatch(panel, /TryAppendHistory|HistoryRow|ExportXlsx|SaveHistory/);
