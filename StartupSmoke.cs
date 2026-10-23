@@ -154,6 +154,12 @@ internal static class StartupSmoke
                 Path.Combine(tmp,"logs"),"*.jsonl").Single());
             if(protectedLog.Contains("SHOULD_NEVER_APPEAR",StringComparison.Ordinal))
                 throw new Exception("EXCEPTION_MESSAGE_LEAKED");
+            store.Trace("TEST","REDACTION_TEST","ERROR",0,"SESSION_SECRET");
+            var newLog=string.Join("\n",Directory.GetFiles(Path.Combine(tmp,"logs"),"*.jsonl")
+                .Select(File.ReadAllText));
+            if(newLog.Contains("SESSION_SECRET",StringComparison.Ordinal) ||
+               !newLog.Contains("REDACTED",StringComparison.Ordinal))
+                throw new Exception("AUTH_SESSION_MARKER_LEAKED");
             if(!WmsWorkflowJs.Script.Contains("COUNT_BLUR_MISMATCH")||
                !WmsWorkflowJs.Script.Contains("NO")||
                !WmsWorkflowJs.Script.Contains("ĐÓNG GÓI HÀNG CHẴN"))
