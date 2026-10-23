@@ -22,6 +22,16 @@ internal static class Program
             }
             return;
         }
+        // Capture fatal and async task failures as exception TYPE only.
+        // Never write messages, paths, browser state, credentials or stack text.
+        AppDomain.CurrentDomain.UnhandledException+=(_,e)=>{
+            if(e.ExceptionObject is Exception ex)SaveUiDiagnostic(ex);
+            else new LocalStore().Trace("APP","FATAL_UNKNOWN","ERROR");
+        };
+        TaskScheduler.UnobservedTaskException+=(_,e)=>{
+            SaveUiDiagnostic(e.Exception);
+            e.SetObserved();
+        };
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => {
             SaveUiDiagnostic(e.Exception);
