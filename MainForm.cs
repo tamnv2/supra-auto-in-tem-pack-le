@@ -166,7 +166,21 @@ public sealed class MainForm : Form
         // Pump a real WinForms message loop on the Windows runner. The previous
         // smoke never made the form visible and missed focus/TabPage lifecycle bugs.
         var asynchronousErrors=0;
-        System.Threading.ThreadExceptionEventHandler handler=(_,_)=>asynchronousErrors++;
+        System.Threading.ThreadExceptionEventHandler handler=(_,e)=>
+        {
+            asynchronousErrors++;
+            try
+            {
+                var frames=new System.Diagnostics.StackTrace(e.Exception,false).GetFrames()?
+                    .Take(7).Select(x=>x.GetMethod()?.DeclaringType?.Name+"."+
+                         x.GetMethod()?.Name).ToArray() ?? [];
+                var detail=e.Exception.GetType().Name+" | "+
+                    string.Join(" -> ",frames)+Environment.NewLine;
+                File.AppendAllText(Path.Combine(Path.GetTempPath(),
+                    "supra-mode-ui-smoke-errors.txt"),detail);
+            }
+            catch {}
+        };
         Application.ThreadException+=handler;
         try
         {
