@@ -109,6 +109,7 @@ public sealed class MainForm : Form
             UpdateControls();
         };
         Text="WMS Packing & Productivity Assistant | "+Application.ProductVersion;
+        _store.Trace("APP","START","DONE");
         Font=new Font("Segoe UI",10);
         MinimumSize=new Size(1040,675);Width=1380;Height=850;
         StartPosition=FormStartPosition.CenterScreen;
@@ -344,6 +345,8 @@ public sealed class MainForm : Form
 
     private void SwitchOperation(bool temChan,bool initial=false)
     {
+        _store.Trace("APP","MODE_SWITCH_REQUEST","WAIT",0,
+            "EVEN="+(temChan?1:0));
         if(!initial && (_busy || _setupRunning || _temChanPanel?.IsBusy==true ||
             _temChanPanel?.NeedsManualReview==true || _browser.Recording ||
             _resettingBrowser || _needsRecovery))
@@ -362,6 +365,8 @@ public sealed class MainForm : Form
                 _setupTask=RunInitialSetupAsync();
             return;
         }
+        _store.Trace("APP","MODE_SWITCH_ACCEPTED","DONE",0,
+            "EVEN="+(temChan?1:0));
         _setupRunning=false;
         ++_printerSetupGeneration; // cancel old in-tem-chan login/selection polling.
         _verifiedPrinter="";
@@ -561,7 +566,7 @@ public sealed class MainForm : Form
         _webTab.Controls.Add(browserLayout);
         _productionTab.Controls.Add(BuildProductionTab());
         _aboutTab.Controls.Add(BuildAboutTab());
-        _temChanPanel=new TemChanPanel(_browser,ShowBrowser,HideBrowser);
+        _temChanPanel=new TemChanPanel(_browser,ShowBrowser,HideBrowser,_store);
         _temChanTab.Controls.Add(_temChanPanel);
         _settingsTab.Controls.Add(BuildOperationSettings());
         _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab,_settingsTab]);
@@ -938,6 +943,7 @@ public sealed class MainForm : Form
         }
         catch(Exception ex)
         {
+            _store.TraceException("PRINTER","EVEN_SETUP_EXCEPTION",ex);
             if(!IsDisposed && _temChanMode && generation==_printerSetupGeneration)
             {
                 var detail=System.Text.RegularExpressions.Regex.Match(ex.Message,
@@ -1122,6 +1128,7 @@ public sealed class MainForm : Form
                     }
                     catch(Exception ex)
                     {
+                        _store.TraceException("PRINTER","LOOSE_SETUP_EXCEPTION",ex);
                         _store.Trace("SETUP","PRINTER_SELECTION_FAILED","ERROR");
                         Manual("PRINTER_SELECTION_FAILED");
                         MessageBox.Show(this,"Không thể chọn máy in từ WMS: "+ex.Message,
@@ -1143,11 +1150,11 @@ public sealed class MainForm : Form
                 }
             }
         }
-        catch
+        catch(Exception ex)
         {
             if(!IsDisposed)
             {
-                _store.Trace("SETUP","STARTUP_EXCEPTION","ERROR");
+                _store.TraceException("SETUP","STARTUP_EXCEPTION",ex);
                 Status("FAULT","Không tự xác minh được quầy hoặc máy in. Kiểm tra thủ công trong tab Trình duyệt.");
                 ShowBrowser();
             }
@@ -1359,6 +1366,7 @@ public sealed class MainForm : Form
     private async Task ActionAsync(string action,string? value,CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        _store.Trace(_stage,"ACTION_"+action,"WAIT",_watch.ElapsedMilliseconds);
         var r=await _browser.PerformAsync(action,value);
         var reason=Regex.IsMatch(r.reason??"","^[A-Z0-9_]{1,60}$")?r.reason:"UNSPECIFIED";
         _store.Trace(_stage,"ACTION_"+action,r.ok?"OK":"BLOCKED",_watch.ElapsedMilliseconds,r.ok?"DONE":reason);
@@ -1368,17 +1376,35 @@ public sealed class MainForm : Form
     {
         if(_busy||_needsRecovery||!_setupDone)return;
         var tote=_tote.Text.Trim().ToUpperInvariant();
-        if(!ToteFormat.IsMatch(tote)){MessageBox.Show("Mã Tote không hợp lệ.");return;}
+        if(!ToteFormat.IsMatch(tote))
+        {
+            _store.Trace("LOOSE","TOTE_INVALID","BLOCKED");
+            MessageBox.Show("Mã Tote không hợp lệ.");return;
+        }
         if(!int.TryParse(_qty.Text.Trim(),out var count)||count<1||count>9999)
-        {MessageBox.Show("Số kiện phải từ 1 đến 9999.");return;}
+        {
+            _store.Trace("LOOSE","QTY_INVALID","BLOCKED");
+            MessageBox.Show("Số kiện phải từ 1 đến 9999.");return;
+        }
         var ready=await _browser.PeekAsync();
         if(ready?.ready!=true)
-        {_browser.Reveal();MessageBox.Show("WMS chưa ở màn hình quét Tote. Vui lòng đăng nhập và chọn máy in.");return;}
+        {
+            _store.Trace("LOOSE","WMS_NOT_READY","BLOCKED");
+            _browser.Reveal();MessageBox.Show("WMS chưa ở màn hình quét Tote. Vui lòng đăng nhập và chọn máy in.");return;
+        }
         _people=_store.LoadPeople();
-        if(_people.Count==0){ManagePeople();return;}
+        if(_people.Count==0)
+        {
+            _store.Trace("LOOSE","STAFF_MISSING","BLOCKED");
+            ManagePeople();return;
+        }
         // Selecting a person and pressing Enter is the sole confirmation.
         var person=ChoosePerson();
-        if(person==null)return;
+        if(person==null)
+        {
+            _store.Trace("LOOSE","STAFF_SELECTION_CANCELLED","BLOCKED");
+            return;
+        }
         _busy=true;_cancel=new CancellationTokenSource();_watch.Restart();UpdateControls();
         var started=DateTime.Now;
         var attemptId=Guid.NewGuid().ToString("N").ToUpperInvariant();
@@ -1447,12 +1473,14 @@ public sealed class MainForm : Form
         }
         catch(WorkflowHalt e)
         {
+            _store.TraceException("LOOSE","JOB_HALTED",e,_watch.ElapsedMilliseconds);
             _store.Trace("FAULT","JOB_HALTED","UNCERTAIN",_watch.ElapsedMilliseconds);
             Status("FAULT",e.Message);
             _needsRecovery=true;_browser.Reveal();
         }
-        catch
+        catch(Exception ex)
         {
+            _store.TraceException("LOOSE","JOB_EXCEPTION",ex,_watch.ElapsedMilliseconds);
             _store.Trace("FAULT","JOB_EXCEPTION","UNCERTAIN",_watch.ElapsedMilliseconds);
             Status("FAULT","Lỗi bất ngờ, mở WMS xử lý bằng tay.");
             _needsRecovery=true;_browser.Reveal();
@@ -1643,23 +1671,39 @@ public sealed class MainForm : Form
     }
     private void ExportLogs()
     {
-        using var f=new Form{Text="CHỌN NGÀY XUẤT LOG",Width=435,Height=240,StartPosition=FormStartPosition.CenterParent};
-        var mode=new ComboBox{Location=new Point(16,18),Width=365,DropDownStyle=ComboBoxStyle.DropDownList};
-        mode.Items.AddRange(["Tất cả","Một ngày","Khoảng ngày"]);mode.SelectedIndex=0;
-        var from=new DateTimePicker{Location=new Point(16,64),Width=170,Format=DateTimePickerFormat.Short,Value=DateTime.Today};
-        var to=new DateTimePicker{Location=new Point(205,64),Width=170,Format=DateTimePickerFormat.Short,Value=DateTime.Today};
-        var ok=MakeButton("XUẤT ZIP LOG",160);ok.Location=new Point(16,120);
-        ok.Click+=(_,_)=>{f.DialogResult=DialogResult.OK;f.Close();};
-        f.Controls.AddRange([mode,from,to,ok]);
-        if(f.ShowDialog(this)!=DialogResult.OK)return;
-        DateTime? start=mode.SelectedIndex==0?null:from.Value.Date;
-        DateTime? end=mode.SelectedIndex==0?null:mode.SelectedIndex==1?from.Value.Date:to.Value.Date;
-        if(start.HasValue&&end.HasValue&&end<start){MessageBox.Show("Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.");return;}
-        using var dialog=new SaveFileDialog{Filter="ZIP (*.zip)|*.zip",
-            FileName="SUPRA_Logs_"+DateTime.Now.ToString("yyyyMMdd_HHmmss")+".zip"};
-        if(dialog.ShowDialog(this)!=DialogResult.OK)return;
-        try{_store.Trace("EXPORT","LOG_EXPORT","OK");_store.ExportLogs(dialog.FileName,start,end);MessageBox.Show("Đã xuất log ZIP.");}
-        catch{_store.Trace("EXPORT","LOG_EXPORT","ERROR");MessageBox.Show("Xuất log thất bại.");}
+        _store.Trace("EXPORT","TECHNICAL_REQUEST","WAIT");
+        try
+        {
+            var result=_store.ExportAllLogsToDesktopAndPurge();
+            if(result.DeletedFiles==result.ExportedFiles)
+            {
+                // The ZIP was reopened and every JSONL verified before deletion.
+                // Do not write a new success log after the purge.
+                MessageBox.Show(this,
+                    "Đã xuất "+result.ExportedFiles+" file nhật ký ra Desktop và xác minh ZIP.\n"+
+                    "Nhật ký kỹ thuật cũ đã xóa sau khi xuất thành công.\n\n"+
+                    result.Path,
+                    "Xuất log kỹ thuật hoàn tất",
+                    MessageBoxButtons.OK,MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(this,
+                    "ZIP đã được lưu và kiểm tra tại Desktop:\n"+result.Path+
+                    "\n\nĐã xóa "+result.DeletedFiles+"/"+result.ExportedFiles+
+                    " file log. Một số file chưa xóa được; vẫn được giữ an toàn để thử lại.",
+                    "Đã xuất, còn log chưa xóa",
+                    MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
+        }
+        catch(Exception ex)
+        {
+            _store.TraceException("EXPORT","TECHNICAL_FAILED",ex);
+            MessageBox.Show(this,
+                "Xuất log chưa thành công. Nhật ký gốc được giữ lại.\n"+
+                "Kiểm tra quyền ghi Desktop và dung lượng ổ đĩa.",
+                "Xuất log thất bại",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+        }
     }
 }
 internal sealed class WorkflowHalt : Exception
