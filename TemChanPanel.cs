@@ -143,7 +143,8 @@ internal sealed class TemChanPanel : UserControl
         }
         throw new TemChanStop(stage+" không đạt yêu cầu trong "+seconds+
             " giây. "+(last?.reason??"WMS_NOT_READY")+
-            " (nút in="+(last?.printCount??0)+", tab="+(last?.tabSelected==true?"đã chọn":"chưa chọn")+").");
+            " (nút in="+(last?.printCount??0)+", tab="+(last?.tabSelected==true?"đã chọn":"chưa chọn")+
+            ", nguồn trạng thái="+(last?.statusSource??"UNKNOWN")+").");
     }
     private async Task ExecuteAsync(string action,string so)
     {
