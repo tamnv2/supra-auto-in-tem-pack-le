@@ -25,6 +25,10 @@ public sealed class MainForm : Form
     private readonly Button _exportLog=MakeButton("XUẤT LOG",135);
     private readonly TabControl _tabs=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",10)};
     private readonly TabPage _operationTab=new("NGHIỆP VỤ");
+    private readonly TabPage _temChanTab=new("IN TEM CHẴN");
+    private readonly TabPage _settingsTab=new("CÀI ĐẶT");
+    private TemChanPanel? _temChanPanel;
+    private bool _temChanMode;
     private readonly TabPage _webTab=new("TRÌNH DUYỆT WMS");
     private readonly TabPage _productionTab=new("SẢN LƯỢNG HÔM NAY");
     private readonly TabPage _aboutTab=new("THÔNG TIN PHẦN MỀM");
@@ -69,6 +73,7 @@ public sealed class MainForm : Form
         _browser=new WmsBrowser(_store,ShowBrowser);
         _browser.LoginRequired+=()=>
         {
+            if(_temChanMode){_browser.Reveal();return;}
             if(!_setupDone||IsDisposed||_resettingBrowser)return;
             _setupDone=false;
             _printerVerified=false;
@@ -102,16 +107,37 @@ public sealed class MainForm : Form
         Activated+=(_,_)=>{if(_tabs.SelectedTab==_operationTab&&!_busy&&!_needsRecovery&&_tote.Enabled)_tote.Focus();};
         Status("INIT","Mở cửa sổ WMS, đăng nhập và chọn máy in trước khi dùng.");
         Shown+=async (_,_)=>{
+            using(var choice=BuildStartupChoice())
+            {
+                choice.ShowDialog(this);
+                SwitchOperation(choice.Tag is bool selected && selected,true);
+            }
             _tabs.SelectedTab=_webTab;
             try
             {
                 await _browser.InitializeAsync();
-                Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
-                _setupTask=RunInitialSetupAsync();
+                if(!_temChanMode)
+                {
+                    Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
+                    _setupTask=RunInitialSetupAsync();
+                }
+                else _temChanPanel?.UpdateBrowserButton();
             }
-            catch { Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime."); }
+            catch
+            {
+                if(!_temChanMode)Status("FAULT","Không khởi động được WMS. Cần WebView2 Runtime.");
+                else MessageBox.Show(this,"Không khởi động được WMS. Cần WebView2 Runtime.",
+                    "Lỗi trình duyệt",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            }
         };
         FormClosing+=(_,e)=>{
+            if(_temChanPanel?.IsBusy==true)
+            {
+                e.Cancel=true;
+                MessageBox.Show(this,"Đang xử lý lệnh in chẵn. Không được đóng ứng dụng giữa thao tác.",
+                    "Đang xử lý",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
+            }
             if(_browser.Recording)
             {
                 e.Cancel=true;
@@ -131,6 +157,120 @@ public sealed class MainForm : Form
             _browser.Terminate();
         };
     }
+    private Form BuildStartupChoice()
+    {
+        var choice=new Form {
+            Text="CHỌN NGHIỆP VỤ",StartPosition=FormStartPosition.CenterParent,
+            Width=530,Height=255,MinimumSize=new Size(500,240),MaximizeBox=false,
+            MinimizeBox=false,FormBorderStyle=FormBorderStyle.FixedDialog,
+            Font=new Font("Segoe UI",11),BackColor=Color.FromArgb(247,249,252)
+        };
+        var layout=new TableLayoutPanel {
+            Dock=DockStyle.Fill,Padding=new Padding(20),ColumnCount=2,RowCount=2
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute,72));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        layout.Controls.Add(new Label {
+            Text="Chọn nghiệp vụ cần thực hiện",Dock=DockStyle.Fill,
+            Font=new Font("Segoe UI",14,FontStyle.Bold),
+            TextAlign=ContentAlignment.MiddleCenter
+        },0,0);
+        layout.SetColumnSpan(layout.GetControlFromPosition(0,0)!,2);
+        var even=MakeButton("IN TEM CHẴN",210);
+        var loose=MakeButton("IN TEM LẺ AUTO",210);
+        even.Dock=DockStyle.Fill;loose.Dock=DockStyle.Fill;
+        even.Margin=new Padding(4);loose.Margin=new Padding(4);
+        even.Click+=(_,_)=>{choice.Tag=true;choice.DialogResult=DialogResult.OK;choice.Close();};
+        loose.Click+=(_,_)=>{choice.Tag=false;choice.DialogResult=DialogResult.OK;choice.Close();};
+        layout.Controls.Add(even,0,1);
+        layout.Controls.Add(loose,1,1);
+        choice.Controls.Add(layout);
+        return choice;
+    }
+
+    private Control BuildOperationSettings()
+    {
+        var root=new TableLayoutPanel {
+            Dock=DockStyle.Fill,Padding=new Padding(26),ColumnCount=1,RowCount=3,
+            BackColor=Color.FromArgb(247,249,252)
+        };
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,75));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute,80));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        root.Controls.Add(new Label {
+            Text="CÀI ĐẶT · CHỌN NGHIỆP VỤ",Dock=DockStyle.Fill,
+            Font=new Font("Segoe UI",17,FontStyle.Bold),
+            TextAlign=ContentAlignment.MiddleLeft
+        },0,0);
+        var buttons=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=2,RowCount=1};
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
+        var ch=MakeButton("CHUYỂN SANG IN TEM CHẴN",250);
+        var le=MakeButton("CHUYỂN SANG IN TEM LẺ AUTO",250);
+        ch.Dock=DockStyle.Fill;le.Dock=DockStyle.Fill;
+        ch.Margin=new Padding(4);le.Margin=new Padding(4);
+        ch.Click+=(_,_)=>SwitchOperation(true);
+        le.Click+=(_,_)=>SwitchOperation(false);
+        buttons.Controls.Add(ch,0,0);buttons.Controls.Add(le,1,0);
+        root.Controls.Add(buttons,0,1);
+        root.Controls.Add(new Label {
+            Text="Chuyển nghiệp vụ không cần khởi động lại. Không chuyển khi đang in, "+
+                "đang đóng gói hoặc khi WMS chưa được kiểm tra sau một thao tác không chắc chắn. "+
+                "Nghiệp vụ in tem lẻ giữ nguyên lịch sử và thống kê; in tem chẵn không lưu lịch sử.",
+            Dock=DockStyle.Fill,Font=new Font("Segoe UI",11),AutoSize=false,
+            TextAlign=ContentAlignment.TopLeft,Padding=new Padding(4,24,4,4)
+        },0,2);
+        return root;
+    }
+
+    private void SwitchOperation(bool temChan,bool initial=false)
+    {
+        if(!initial && (_busy || _temChanPanel?.IsBusy==true ||
+            _temChanPanel?.NeedsManualReview==true || _browser.Recording ||
+            _resettingBrowser || _needsRecovery))
+        {
+            MessageBox.Show(this,"Không thể chuyển nghiệp vụ khi có thao tác chưa kết thúc "+
+                "hoặc cần kiểm tra lại WMS.", "Chưa thể chuyển",MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+        if(!initial && temChan==_temChanMode)
+        {
+            _tabs.SelectedTab=temChan?_temChanTab:_operationTab;
+            return;
+        }
+        _setupRunning=false;
+        _temChanMode=temChan;
+        _browser.SetOperationMode(temChan);
+        if(temChan)
+        {
+            _tabs.TabPages.Remove(_operationTab);
+            _tabs.TabPages.Remove(_productionTab);
+            if(!_tabs.TabPages.Contains(_temChanTab))
+                _tabs.TabPages.Insert(0,_temChanTab);
+            _tabs.SelectedTab=_temChanTab;
+        }
+        else
+        {
+            _tabs.TabPages.Remove(_temChanTab);
+            if(!_tabs.TabPages.Contains(_operationTab))
+                _tabs.TabPages.Insert(0,_operationTab);
+            if(!_tabs.TabPages.Contains(_productionTab))
+                _tabs.TabPages.Add(_productionTab);
+            _setupDone=false;_printerVerified=false;_needsRecovery=false;
+            Status("INIT","Mở lại nghiệp vụ in tem lẻ, xác nhận quầy và máy in.");
+            _tabs.SelectedTab=_operationTab;
+            if(_browser.Ready)_setupTask=RunInitialSetupAsync();
+        }
+        Text="WMS Packing & Productivity Assistant | "+
+            (temChan?"IN TEM CHẴN":"IN TEM LẺ AUTO")+" | "+Application.ProductVersion;
+        UpdateControls();
+        UpdateBrowserToggle();
+        if(!initial && _browser.Ready)ShowBrowser();
+    }
+
     private static Button MakeButton(string label,int width)
     {
         return new Button{Text=label,Width=width,Height=44,Font=new Font("Segoe UI",11,FontStyle.Bold),
@@ -141,7 +281,7 @@ public sealed class MainForm : Form
     {
         _tabs.DrawMode=TabDrawMode.OwnerDrawFixed;
         _tabs.SizeMode=TabSizeMode.Fixed;
-        _tabs.ItemSize=new Size(240,50);
+        _tabs.ItemSize=new Size(190,50);
         _tabs.DrawItem+=(_,e)=>
         {
             var selected=e.Index==_tabs.SelectedIndex;
@@ -279,7 +419,10 @@ public sealed class MainForm : Form
         _webTab.Controls.Add(browserLayout);
         _productionTab.Controls.Add(BuildProductionTab());
         _aboutTab.Controls.Add(BuildAboutTab());
-        _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab]);
+        _temChanPanel=new TemChanPanel(_browser,ShowBrowser,HideBrowser);
+        _temChanTab.Controls.Add(_temChanPanel);
+        _settingsTab.Controls.Add(BuildOperationSettings());
+        _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab,_settingsTab]);
         _tabs.SelectedTab=_webTab; // Visible on the very first frame, before async login begins.
         _tabs.SelectedIndexChanged+=(_,_)=>{
             UpdateBrowserToggle();
@@ -287,6 +430,8 @@ public sealed class MainForm : Form
                 RefreshProduction(_store.FilterHistory(DateTime.Today,DateTime.Today));
             if(_tabs.SelectedTab==_operationTab && !_busy && !_needsRecovery)
                 _tote.Focus();
+            if(_tabs.SelectedTab==_temChanTab)
+                _temChanPanel?.FocusSo();
             _tabs.Invalidate();
         };
         Controls.Add(_tabs);
@@ -591,14 +736,15 @@ public sealed class MainForm : Form
             if(!IsDisposed)
             {
                 UpdateControls();
-                if(_browser.Ready&&!_setupDone)_setupTask=RunInitialSetupAsync();
+                if(_browser.Ready&&!_setupDone&&!_temChanMode)
+                    _setupTask=RunInitialSetupAsync();
             }
         }
     }
 
     private async Task RunInitialSetupAsync()
     {
-        if(_setupRunning||_setupDone||IsDisposed||_resettingBrowser||_busy)return;
+        if(_temChanMode||_setupRunning||_setupDone||IsDisposed||_resettingBrowser||_busy)return;
         _setupRunning=true;
         var accountOpenAttempts=0;
         var boothOpenAttempts=0;
@@ -848,8 +994,14 @@ public sealed class MainForm : Form
 
     private void UpdateBrowserToggle()
     {
-        if(!IsDisposed)
-            _show.Text=_tabs.TabPages.Contains(_webTab)?"ẨN TRÌNH DUYỆT":"HIỆN TRÌNH DUYỆT";
+        if(IsDisposed)return;
+        var shown=_tabs.TabPages.Contains(_webTab);
+        _show.Text=shown?"ẨN TRÌNH DUYỆT":"HIỆN TRÌNH DUYỆT";
+        if(_temChanPanel!=null)
+        {
+            _temChanPanel.BrowserIsShown=shown;
+            _temChanPanel.UpdateBrowserButton();
+        }
     }
     private void ShowBrowser()
     {
@@ -864,7 +1016,7 @@ public sealed class MainForm : Form
         if(IsDisposed)return;
         if(!_tabs.TabPages.Contains(_webTab))return;
         if(_tabs.SelectedTab==_webTab)
-            _tabs.SelectedTab=_operationTab;
+            _tabs.SelectedTab=_temChanMode?_temChanTab:_operationTab;
         _tabs.TabPages.Remove(_webTab);
         UpdateBrowserToggle();
     }
