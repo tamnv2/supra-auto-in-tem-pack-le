@@ -84,9 +84,31 @@ internal static class WmsPrinterSetupJs
       const expanded = () => {
         const f=field();
         return !!f && (f.getAttribute('aria-expanded') === 'true' ||
-          !!document.querySelector('.cdk-overlay-container mat-option,'+
-          '.cdk-overlay-container [role="option"]') ||
-          (f.tagName === 'SELECT'));
+          options().length > 0 || f.tagName === 'SELECT');
+      };
+      // WMS uses a filtered Angular Material autocomplete. Focusing and clicking
+      // an INPUT with the already-selected printer text often leaves zero options:
+      // reset the search query, not the saved WMS printer. Restore by choosing
+      // a real mat-option before either Confirm (changed) or Close (unchanged).
+      const openPrinterChoices = () => {
+        const f=field();
+        if (!enabled(f)) return {ok:false,reason:'PRINTER_FIELD_NOT_READY'};
+        if (f.tagName === 'SELECT') {syncCache();return {ok:true};}
+        if (f.tagName !== 'INPUT' || f.getAttribute('role') !== 'combobox')
+          return {ok:false,reason:'PRINTER_COMBOBOX_NOT_UNIQUE'};
+        f.focus();
+        if (f.value !== '') {
+          const descriptor=typeof HTMLInputElement==='undefined' ? null :
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+          if (descriptor?.set) descriptor.set.call(f,'');
+          else f.value='';
+        }
+        // Dispatch after assigning the empty query. Angular's FormControl
+        // filters its options from the emitted input value, not DOM click alone.
+        f.dispatchEvent(new Event('input',{bubbles:true}));
+        f.click();
+        syncCache();
+        return {ok:true};
       };
       const confirm = () => {
         const d=dialog();
@@ -104,7 +126,8 @@ internal static class WmsPrinterSetupJs
         const hasMore=!!scroll && scroll.scrollTop+scroll.clientHeight<scroll.scrollHeight-3;
         const all=[...cache].sort((a,b)=>a.localeCompare(b,'vi'));
         return {
-          ok:true,reason:'OK',printerDialog:!!d,fieldReady:!!f,
+          ok:true,reason:!!d && !!f && !expanded() ?
+            'PRINTER_CHOICES_NOT_VISIBLE':'OK',printerDialog:!!d,fieldReady:!!f,
           blockingDialogCount:blockingDialogs().length,
           currentPrinter:isPrinter(fieldValue(f))?fieldValue(f):'',
           accountTriggerCount:accountTriggers().length,
@@ -131,20 +154,7 @@ internal static class WmsPrinterSetupJs
           m.click();return {ok:true};
         }
         if (!dialog()) return {ok:false,reason:'PRINTER_DIALOG_NOT_OPEN'};
-        if (action==='EXPAND') {
-          const f=field();
-          if (!enabled(f))return {ok:false,reason:'PRINTER_FIELD_NOT_READY'};
-          if (f.tagName !== 'SELECT') {
-            // DOM click alone does not focus Angular Material autocomplete.
-            // The recorded manual sequence was pointerdown -> focus -> click.
-            f.focus();
-            f.click();
-            if (f.tagName === 'INPUT')
-              f.dispatchEvent(new Event('input',{bubbles:true}));
-          }
-          syncCache();
-          return {ok:true};
-        }
+        if (action==='EXPAND') return openPrinterChoices();
         if (action==='SCAN_RESET') {
           const s=scroller();
           if(s) {s.scrollTop=0;s.dispatchEvent(new Event('scroll',{bubbles:true}));}
