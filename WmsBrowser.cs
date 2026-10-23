@@ -55,6 +55,7 @@ internal sealed class TemChanPeek
     public string reason {get;set;}="";
     public bool statusKnown {get;set;}
     public bool statusValid {get;set;}
+    public string statusSource {get;set;}="";
     public bool tabReady {get;set;}
     public bool tabSelected {get;set;}
     public int printCount {get;set;}
