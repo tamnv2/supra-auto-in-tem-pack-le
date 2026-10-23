@@ -43,7 +43,10 @@ internal static class WmsPrinterCoordinator
             EnsureActive(active);
             browser.TryNavigateTemChanListAfterLogin();
             var p=await browser.PrinterPeekAsync();
-            if(p?.ok==true)break;
+            // A valid URL alone does not establish login: WMS may show the SSO
+            // UI or be hydrating Angular on the same route. Wait for the actual
+            // authenticated account menu, without any credential inspection.
+            if(p?.ok==true && p.accountTriggerCount==1)break;
             await Task.Delay(1100);
         }
         progress("WMS đã sẵn sàng. Mở Thiết lập máy in.");
