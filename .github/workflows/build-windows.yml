@@ -103,7 +103,11 @@ jobs:
         run: |
           $app = (Resolve-Path 'publish/WmsPackingAssistant.exe').Path
           $p = Start-Process -FilePath $app -ArgumentList '--mode-ui-smoke' -PassThru -Wait -NoNewWindow
-          if ($p.ExitCode -ne 0) { throw "MODE_UI_SMOKE_FAILED_$($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) {
+            $diag = Join-Path $env:TEMP 'supra-mode-ui-smoke-errors.txt'
+            if (Test-Path $diag) { Get-Content $diag }
+            throw "MODE_UI_SMOKE_FAILED_$($p.ExitCode)"
+          }
       - name: Package and checksum
         shell: pwsh
         run: |
