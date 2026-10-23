@@ -43,6 +43,23 @@ internal sealed class BrowserSetupPeek
     public bool printerEmpty {get;set;}
     public bool printerOptionVisible {get;set;}
 }
+internal sealed class PrinterSetupPeek
+{
+    public bool ok {get;set;}
+    public string reason {get;set;}="";
+    public bool printerDialog {get;set;}
+    public bool fieldReady {get;set;}
+    public string currentPrinter {get;set;}="";
+    public int accountTriggerCount {get;set;}
+    public bool settingsVisible {get;set;}
+    public bool optionsExpanded {get;set;}
+    public bool choiceVisible {get;set;}
+    public List<string> options {get;set;}=[];
+    public int optionCount {get;set;}
+    public bool scanDone {get;set;}
+    public bool confirmEnabled {get;set;}
+    public bool closeEnabled {get;set;}
+}
 internal sealed class BrowserResult
 {
     public bool ok {get;set;}
@@ -72,9 +89,69 @@ internal sealed class WmsBrowser : UserControl
     private const string Target="https://wms-supra.winmart.vn/sft3/app/saleorder/packing";
     private const string TemChanList="https://wms-supra.winmart.vn/sft3/app/saleorder/list";
     private bool _temChanMode;
+    private bool _temChanRouting;
+    private int _temChanRedirects;
+    public void TryNavigateTemChanListAfterLogin()
+    {
+        if(!_temChanMode || !_temChanRouting || _temChanRedirects>=3)return;
+        var core=_view.CoreWebView2;
+        if(core is null || !Uri.TryCreate(core.Source,UriKind.Absolute,out var uri))return;
+        if(uri.Scheme!="https" || uri.Host!="wms-supra.winmart.vn" ||
+           !uri.AbsolutePath.StartsWith("/sft3/app/",StringComparison.OrdinalIgnoreCase))
+            return;
+        if(uri.AbsolutePath.TrimEnd('/').Equals("/sft3/app/saleorder/list",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            _temChanRouting=false;
+            return;
+        }
+        _temChanRedirects++;
+        _storage.Trace("SETUP","RETURN_SO_LIST_ROUTE","OK");
+        core.Navigate(TemChanList);
+    }
+    public async Task<PrinterSetupPeek?> PrinterPeekAsync(string selected="")
+    {
+        if(!Ready || _view.CoreWebView2 is null)return null;
+        try
+        {
+            var core=_view.CoreWebView2;
+            await core.ExecuteScriptAsync(WmsPrinterSetupJs.Script);
+            var raw=await core.ExecuteScriptAsync(
+                "window.__supraPrinterV1?.peek("+JsonSerializer.Serialize(selected)+
+                ") || {ok:false,reason:'NO_PRINTER_SCRIPT'}");
+            return JsonSerializer.Deserialize<PrinterSetupPeek>(raw);
+        }
+        catch
+        {
+            _storage.Trace("PRINTER","PEEK_FAILED","ERROR");
+            return null;
+        }
+    }
+    public async Task<BrowserResult> PrinterActionAsync(string action,string selection="")
+    {
+        if(!Ready || _view.CoreWebView2 is null)return new(){reason="WEB_NOT_READY"};
+        try
+        {
+            var core=_view.CoreWebView2;
+            await core.ExecuteScriptAsync(WmsPrinterSetupJs.Script);
+            var raw=await core.ExecuteScriptAsync(
+                "window.__supraPrinterV1?.perform("+
+                JsonSerializer.Serialize(action)+","+
+                JsonSerializer.Serialize(selection)+") || {ok:false,reason:'NO_PRINTER_SCRIPT'}");
+            return JsonSerializer.Deserialize<BrowserResult>(raw) ??
+                new(){reason="PRINTER_SCRIPT_INVALID"};
+        }
+        catch
+        {
+            _storage.Trace("PRINTER","ACTION_FAILED","ERROR");
+            return new(){reason="PRINTER_SCRIPT_CALL_FAILED"};
+        }
+    }
     public void SetOperationMode(bool temChan)
     {
         _temChanMode=temChan;
+        _temChanRouting=temChan;
+        _temChanRedirects=0;
         _startupRouting=!temChan;
         _startupRedirects=0;
         if(Ready && _view.CoreWebView2 is not null)
@@ -172,6 +249,7 @@ internal sealed class WmsBrowser : UserControl
             await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsWorkflowJs.Script);
             await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsRecorderJs.Script);
             await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsTemChanJs.Script);
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsPrinterSetupJs.Script);
             core.WebMessageReceived+=(_,e)=>
             {
                 if(!_recorder.Active)return;
@@ -210,6 +288,7 @@ internal sealed class WmsBrowser : UserControl
                      destination.AbsolutePath.Contains("/login",StringComparison.OrdinalIgnoreCase))))
                     LoginRequired?.Invoke();
                 TryNavigatePackingAfterLogin();
+                TryNavigateTemChanListAfterLogin();
             };
             core.ProcessFailed+=(_,_)=>{Ready=false;_storage.Trace("WEB","PROCESS_FAILED","ERROR");};
             core.NewWindowRequested+=(_,e)=>{
@@ -317,7 +396,7 @@ internal sealed class WmsBrowser : UserControl
             await core.Profile.ClearBrowsingDataAsync();
             _storage.Trace("WEB","BROWSING_DATA_CLEARED","DONE");
             BeginStartupRouting();
-            core.Navigate(Target);
+            core.Navigate(_temChanMode ? TemChanList : Target);
         }
         catch
         {

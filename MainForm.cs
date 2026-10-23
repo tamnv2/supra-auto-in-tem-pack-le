@@ -62,6 +62,8 @@ public sealed class MainForm : Form
     private bool _setupRunning;
     private Task? _setupTask;
     private bool _printerVerified;
+    private string _verifiedPrinter="";
+    private int _printerSetupGeneration;
     private bool _resettingBrowser;
     private readonly System.Windows.Forms.Timer _saveWidthsTimer=new(){Interval=650};
     private string _stage="INIT";
@@ -74,7 +76,14 @@ public sealed class MainForm : Form
         _browser=new WmsBrowser(_store,ShowBrowser);
         _browser.LoginRequired+=()=>
         {
-            if(_temChanMode){_browser.Reveal();return;}
+            if(_temChanMode)
+            {
+                _temChanPanel?.SetPrinterReady(false);
+                var generation=++_printerSetupGeneration;
+                _browser.Reveal();
+                _=RunTemChanPrinterSetupAsync(generation);
+                return;
+            }
             if(!_setupDone||IsDisposed||_resettingBrowser)return;
             _setupDone=false;
             _printerVerified=false;
@@ -125,7 +134,12 @@ public sealed class MainForm : Form
                     Status("INIT","Đăng nhập WMS. Ứng dụng sẽ xác nhận quầy và máy in trước khi cho quét Tote.");
                     _setupTask=RunInitialSetupAsync();
                 }
-                else _temChanPanel?.UpdateBrowserButton();
+                else
+                {
+                    _temChanPanel?.UpdateBrowserButton();
+                    var generation=++_printerSetupGeneration;
+                    _=RunTemChanPrinterSetupAsync(generation);
+                }
             }
             catch
             {
@@ -296,9 +310,16 @@ public sealed class MainForm : Form
         if(!initial && temChan==_temChanMode)
         {
             _tabs.SelectedTab=temChan?_temChanTab:_operationTab;
+            if(temChan && _temChanPanel?.PrinterReady!=true && _browser.Ready)
+                _=RunTemChanPrinterSetupAsync(++_printerSetupGeneration);
+            if(!temChan && !_setupDone && !_setupRunning && _browser.Ready)
+                _setupTask=RunInitialSetupAsync();
             return;
         }
         _setupRunning=false;
+        ++_printerSetupGeneration; // cancel old in-tem-chan login/selection polling.
+        _verifiedPrinter="";
+        _temChanPanel?.SetPrinterReady(false);
         _switchingOperation=true;
         _tabs.SuspendLayout();
         try
@@ -334,6 +355,8 @@ public sealed class MainForm : Form
             _switchingOperation=false;
         }
         if(!temChan && _browser.Ready)_setupTask=RunInitialSetupAsync();
+        if(temChan && !initial && _browser.Ready)
+            _=RunTemChanPrinterSetupAsync(_printerSetupGeneration);
         Text="WMS Packing & Productivity Assistant | "+
             (temChan?"IN TEM CHẴN":"IN TEM LẺ AUTO")+" | "+Application.ProductVersion;
         UpdateControls();
@@ -533,11 +556,14 @@ public sealed class MainForm : Form
             var p=await _browser.PeekAsync();
             if(p?.ready==true)
             {
-                if(!_printerVerified &&
+                if(!_printerVerified)
+                {
                     MessageBox.Show(this,
-                    "Đã kiểm tra trực tiếp quầy SDG.22 và máy in 21-1129-D29 (Online) trên WMS? "+
-                    "Chỉ xác nhận nếu đã kiểm tra bằng tay.",
-                    "Xác nhận thiết lập WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+                        "Chưa chọn và xác minh máy in WMS. Bắt buộc hoàn tất thiết lập "+
+                        "máy in trước khi tiếp tục nghiệp vụ.",
+                        "Chưa thiết lập máy in",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                    return;
+                }
                 _setupDone=true;_needsRecovery=false;_setupRunning=false;
                 _browser.StopStartupRouting();
                 Status("READY","Đã xác nhận màn hình quét Tote và máy in sẵn sàng.");
@@ -778,9 +804,12 @@ public sealed class MainForm : Form
             "XÁC NHẬN XÓA DỮ LIỆU TRÌNH DUYỆT",
             MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
         _resettingBrowser=true;
+        ++_printerSetupGeneration;
+        _temChanPanel?.SetPrinterReady(false);
         _setupRunning=false;
         _setupDone=false;
         _printerVerified=false;
+        _verifiedPrinter="";
         _needsRecovery=false;
         resetButton.Enabled=false;
         UpdateControls();
@@ -791,6 +820,7 @@ public sealed class MainForm : Form
             // No operation or business record is removed.
             if(_setupTask!=null)await _setupTask;
             await _browser.ClearBrowsingDataAsync();
+            if(_temChanMode)_=RunTemChanPrinterSetupAsync(++_printerSetupGeneration);
             _browser.Reveal();
             Status("INIT","Đã xóa dữ liệu trình duyệt. Hãy đăng nhập WMS để thiết lập lại.");
             MessageBox.Show(this,"Đã xóa dữ liệu duyệt web của ứng dụng. Lịch sử và nhân sự được giữ nguyên.",
@@ -816,22 +846,62 @@ public sealed class MainForm : Form
         }
     }
 
+    private async Task RunTemChanPrinterSetupAsync(int generation)
+    {
+        if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration)return;
+        _temChanPanel?.SetPrinterReady(false);
+        try
+        {
+            ShowBrowser();
+            var selected=await WmsPrinterCoordinator.SelectAsync(
+                this,_browser,
+                ()=>!IsDisposed && _temChanMode && generation==_printerSetupGeneration,
+                message=>{
+                    if(!IsDisposed && generation==_printerSetupGeneration)
+                        _temChanPanel?.PrinterProgress(message);
+                });
+            if(IsDisposed || !_temChanMode || generation!=_printerSetupGeneration)return;
+            _verifiedPrinter=selected;
+            _temChanPanel?.SetPrinterReady(true,selected);
+            _store.Trace("PRINTER","EVEN_SELECTED","DONE");
+            HideBrowser();
+        }
+        catch(OperationCanceledException)
+        {
+            if(!IsDisposed && _temChanMode && generation==_printerSetupGeneration)
+            {
+                _temChanPanel?.PrinterProgress("Đã hủy chọn máy in. Ô SO vẫn bị khóa.");
+                ShowBrowser();
+            }
+        }
+        catch(Exception ex)
+        {
+            if(!IsDisposed && _temChanMode && generation==_printerSetupGeneration)
+            {
+                _store.Trace("PRINTER","EVEN_SETUP_FAILED","ERROR");
+                _temChanPanel?.PrinterProgress("Không thể xác minh máy in. Mở Cài đặt để chọn lại.");
+                ShowBrowser();
+                MessageBox.Show(this,"Không thể hoàn tất thiết lập máy in WMS: "+
+                    ex.Message+"\\nÔ SO sẽ giữ khóa đến khi chọn được máy in.",
+                    "IN TEM CHẴN · Máy in chưa sẵn sàng",
+                    MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
+        }
+    }
+
     private async Task RunInitialSetupAsync()
     {
         if(_temChanMode||_setupRunning||_setupDone||IsDisposed||_resettingBrowser||_busy)return;
         _setupRunning=true;
-        var accountOpenAttempts=0;
         var boothOpenAttempts=0;
         var boothSubmissionAttempts=0;
         var boothInputWaits=0;
         var stationReadbackWaits=0;
-        var printerExpandAttempts=0;
         var readyWaits=0;
-        bool printerSelectionNeedsRecheck=false;
         try
         {
-            // A new login is not "ready" until the displayed station code and
-            // currently selected printer have both been verified from the WMS UI.
+            // Ready requires the actual SDG.22 station readback AND explicit
+            // operator-selected printer verified from the current WMS session.
             void Manual(string reason)
             {
                 if(IsDisposed)return;
@@ -839,8 +909,8 @@ public sealed class MainForm : Form
                 _printerVerified=false;
                 _store.Trace("SETUP","MANUAL_REQUIRED","BLOCKED",0,
                     Regex.IsMatch(reason,"^[A-Z0-9_]{1,60}$")?reason:"UNKNOWN");
-                Status("FAULT","Không xác minh được quầy SDG.22 / máy in D29 ("+
-                    reason+"). Chuyển sang Trình duyệt để xử lý bằng tay.");
+                Status("FAULT","Chưa xác minh được quầy SDG.22 hoặc máy in người dùng chọn ("+
+                    reason+"). Mở Cài đặt để thử lại.");
                 ShowBrowser();
                 UpdateControls();
             }
@@ -947,64 +1017,54 @@ public sealed class MainForm : Form
                     continue;
                 }
 
-                readyWaits=0;
-                if(p.printerDialog)
-                {
-                    accountOpenAttempts=0;
-                    if(p.printerCorrect)
-                    {
-                        if(!await Step("PRINTER_CLOSE"))break;
-                        _printerVerified=true;
-                        printerSelectionNeedsRecheck=false;
-                        continue;
-                    }
-                    if(p.printerOptionVisible)
-                    {
-                        if(!await Step("PRINTER_PICK"))break;
-                        await Task.Delay(350);
-                        if(!await Step("PRINTER_CONFIRM"))break;
-                        printerSelectionNeedsRecheck=true;
-                        // Do not mark ready until the dialog is opened again
-                        // and the exact selected D29 label is read back.
-                        continue;
-                    }
-                    if(p.printerEmpty||p.printerWrong)
-                    {
-                        if(++printerExpandAttempts>2){Manual("PRINTER_OPTION_NOT_VISIBLE");break;}
-                        if(!await Step("PRINTER_EXPAND"))break;
-                        continue;
-                    }
-                    Manual("PRINTER_FIELD_UNKNOWN");break;
-                }
-
-                if(p.packingReady&&_printerVerified&&!printerSelectionNeedsRecheck)
-                {
-                    _setupDone=true;
-                    _browser.StopStartupRouting();
-                    _store.Trace("SETUP","STATION_D29_VERIFIED","DONE");
-                    Status("READY","Đã xác minh quầy SDG.22 và máy in 21-1129-D29 (Online). Sẵn sàng quét Tote.");
-                    UpdateControls();
-                    HideBrowser();
-                    FocusToteIfIdle();
-                    break;
-                }
-                if(p.settingsVisible)
-                {
-                    if(!await Step("PRINTER_MENU"))break;
-                    continue;
-                }
                 if(!p.packingReady)
                 {
                     if(++readyWaits>8){Manual("PACKING_NOT_READY");break;}
                     continue;
                 }
-                if(p.accountTriggerCount!=1||accountOpenAttempts>=3)
+                readyWaits=0;
+                if(!_printerVerified)
                 {
-                    Manual("PRINTER_MENU_NOT_UNIQUE");
+                    try
+                    {
+                        ShowBrowser();
+                        var selected=await WmsPrinterCoordinator.SelectAsync(
+                            this,_browser,
+                            ()=>!IsDisposed && !_temChanMode && _setupRunning &&
+                                !_resettingBrowser && !_busy,
+                            message=>{if(!IsDisposed)Status("INIT",message);});
+                        if(!_setupRunning||IsDisposed||_temChanMode)break;
+                        _verifiedPrinter=selected;
+                        _printerVerified=true;
+                        _store.Trace("SETUP","OPERATOR_PRINTER_SELECTED","DONE");
+                        continue;
+                    }
+                    catch(OperationCanceledException)
+                    {
+                        Manual("PRINTER_SELECTION_CANCELLED");
+                        break;
+                    }
+                    catch(Exception ex)
+                    {
+                        _store.Trace("SETUP","PRINTER_SELECTION_FAILED","ERROR");
+                        Manual("PRINTER_SELECTION_FAILED");
+                        MessageBox.Show(this,"Không thể chọn máy in từ WMS: "+ex.Message,
+                            "Máy in chưa sẵn sàng",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                        break;
+                    }
+                }
+                if(p.packingReady && _printerVerified)
+                {
+                    _setupDone=true;
+                    _browser.StopStartupRouting();
+                    _store.Trace("SETUP","OPERATOR_PRINTER_VERIFIED","DONE");
+                    Status("READY","Đã xác minh quầy SDG.22 và máy in "+
+                        _verifiedPrinter+". Sẵn sàng quét Tote.");
+                    UpdateControls();
+                    HideBrowser();
+                    FocusToteIfIdle();
                     break;
                 }
-                accountOpenAttempts++;
-                if(!await Step("ACCOUNT_OPEN"))break;
             }
         }
         catch

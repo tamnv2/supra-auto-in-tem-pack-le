@@ -35,5 +35,5 @@ assert.match(main,/await _browser\.ClearBrowsingDataAsync\(\)/);
 // Native WebView2 data clear only; no manual profile file, cookie, password access.
 assert.match(browser,/await core\.Profile\.ClearBrowsingDataAsync\(\)/);
 assert.doesNotMatch(browser,/(CookieManager|GetCookiesAsync|GetPassword|PasswordVault|Directory\.Delete\(_profile)/);
-assert.match(project,/<Version>1\.(?:7\.0|8\.[0123])<\/Version>/);
+assert.match(project,/<Version>1\.(?:7\.0|8\.[01234])<\/Version>/);
 console.log('LAYOUT_RESET_REGRESSION_PASS');

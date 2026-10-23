@@ -25,6 +25,31 @@ internal sealed class TemChanPanel : UserControl
         TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true };
     private static readonly Regex SoFormat = new("^[A-Z0-9_-]{5,50}$",RegexOptions.Compiled);
     private bool _busy;
+    private bool _printerReady;
+    public bool PrinterReady=>_printerReady;
+    public void PrinterProgress(string message)
+    {
+        if(IsDisposed)return;
+        _state.Text="THIẾT LẬP MÁY IN · "+message;
+        Step(message);
+    }
+    public void SetPrinterReady(bool ready,string printer="")
+    {
+        _printerReady=ready;
+        if(IsDisposed)return;
+        _so.Enabled=ready&&!_busy&&!_uncertain;
+        if(ready)
+        {
+            _state.Text="SẴN SÀNG · Máy in "+printer+" · Nhập SO và nhấn Enter";
+            Step("Máy in WMS đã xác minh: "+printer+". Sẵn sàng nhận SO.");
+            FocusSo();
+        }
+        else
+        {
+            _state.Text="CHỜ THIẾT LẬP MÁY IN · Đăng nhập và chọn máy in WMS";
+            Step("Chưa xác minh máy in. Ô SO tạm khóa.");
+        }
+    }
     private bool _uncertain;
     public bool IsBusy=>_busy;
     public bool NeedsManualReview=>_uncertain;
@@ -69,6 +94,7 @@ internal sealed class TemChanPanel : UserControl
         wrap.Controls.Add(_steps);
         shell.Controls.Add(wrap,0,4);
         Controls.Add(shell);
+        _so.Enabled=false;
         // No BeginInvoke in HandleCreated: native handles may be torn down while
         // the tab is added/removed during startup or an operation switch.
         _so.KeyDown += async (_,e) => {
@@ -155,6 +181,11 @@ internal sealed class TemChanPanel : UserControl
     private async Task RunAsync()
     {
         if(_busy || _uncertain)return;
+        if(!_printerReady)
+        {
+            Alert("Chưa chọn và xác nhận máy in WMS. Không thể in tem.");
+            return;
+        }
         string so=_so.Text.Trim().ToUpperInvariant();
         if(!SoFormat.IsMatch(so)) {Alert("Mã SO không hợp lệ (5–50 ký tự A-Z, số, _ hoặc -).");return;}
         if(!_browser.Ready) {Alert("Web WMS chưa sẵn sàng. Hãy đăng nhập trước.");return;}
