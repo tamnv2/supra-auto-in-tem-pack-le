@@ -886,18 +886,15 @@ public sealed class MainForm : Form
     {
         if(_temChanMode||_setupRunning||_setupDone||IsDisposed||_resettingBrowser||_busy)return;
         _setupRunning=true;
-        var accountOpenAttempts=0;
         var boothOpenAttempts=0;
         var boothSubmissionAttempts=0;
         var boothInputWaits=0;
         var stationReadbackWaits=0;
-        var printerExpandAttempts=0;
         var readyWaits=0;
-        bool printerSelectionNeedsRecheck=false;
         try
         {
-            // A new login is not "ready" until the displayed station code and
-            // currently selected printer have both been verified from the WMS UI.
+            // Ready requires the actual SDG.22 station readback AND explicit
+            // operator-selected printer verified from the current WMS session.
             void Manual(string reason)
             {
                 if(IsDisposed)return;
@@ -905,8 +902,8 @@ public sealed class MainForm : Form
                 _printerVerified=false;
                 _store.Trace("SETUP","MANUAL_REQUIRED","BLOCKED",0,
                     Regex.IsMatch(reason,"^[A-Z0-9_]{1,60}$")?reason:"UNKNOWN");
-                Status("FAULT","Không xác minh được quầy SDG.22 / máy in D29 ("+
-                    reason+"). Chuyển sang Trình duyệt để xử lý bằng tay.");
+                Status("FAULT","Chưa xác minh được quầy SDG.22 hoặc máy in người dùng chọn ("+
+                    reason+"). Mở Cài đặt để thử lại.");
                 ShowBrowser();
                 UpdateControls();
             }
@@ -1014,63 +1011,53 @@ public sealed class MainForm : Form
                 }
 
                 readyWaits=0;
-                if(p.printerDialog)
-                {
-                    accountOpenAttempts=0;
-                    if(p.printerCorrect)
-                    {
-                        if(!await Step("PRINTER_CLOSE"))break;
-                        _printerVerified=true;
-                        printerSelectionNeedsRecheck=false;
-                        continue;
-                    }
-                    if(p.printerOptionVisible)
-                    {
-                        if(!await Step("PRINTER_PICK"))break;
-                        await Task.Delay(350);
-                        if(!await Step("PRINTER_CONFIRM"))break;
-                        printerSelectionNeedsRecheck=true;
-                        // Do not mark ready until the dialog is opened again
-                        // and the exact selected D29 label is read back.
-                        continue;
-                    }
-                    if(p.printerEmpty||p.printerWrong)
-                    {
-                        if(++printerExpandAttempts>2){Manual("PRINTER_OPTION_NOT_VISIBLE");break;}
-                        if(!await Step("PRINTER_EXPAND"))break;
-                        continue;
-                    }
-                    Manual("PRINTER_FIELD_UNKNOWN");break;
-                }
-
-                if(p.packingReady&&_printerVerified&&!printerSelectionNeedsRecheck)
-                {
-                    _setupDone=true;
-                    _browser.StopStartupRouting();
-                    _store.Trace("SETUP","STATION_D29_VERIFIED","DONE");
-                    Status("READY","Đã xác minh quầy SDG.22 và máy in 21-1129-D29 (Online). Sẵn sàng quét Tote.");
-                    UpdateControls();
-                    HideBrowser();
-                    FocusToteIfIdle();
-                    break;
-                }
-                if(p.settingsVisible)
-                {
-                    if(!await Step("PRINTER_MENU"))break;
-                    continue;
-                }
                 if(!p.packingReady)
                 {
                     if(++readyWaits>8){Manual("PACKING_NOT_READY");break;}
                     continue;
                 }
-                if(p.accountTriggerCount!=1||accountOpenAttempts>=3)
+                if(!_printerVerified)
                 {
-                    Manual("PRINTER_MENU_NOT_UNIQUE");
+                    try
+                    {
+                        ShowBrowser();
+                        var selected=await WmsPrinterCoordinator.SelectAsync(
+                            this,_browser,
+                            ()=>!IsDisposed && !_temChanMode && _setupRunning &&
+                                !_resettingBrowser && !_busy,
+                            message=>{if(!IsDisposed)Status("INIT",message);});
+                        if(!_setupRunning||IsDisposed||_temChanMode)break;
+                        _verifiedPrinter=selected;
+                        _printerVerified=true;
+                        _store.Trace("SETUP","OPERATOR_PRINTER_SELECTED","DONE");
+                        continue;
+                    }
+                    catch(OperationCanceledException)
+                    {
+                        Manual("PRINTER_SELECTION_CANCELLED");
+                        break;
+                    }
+                    catch(Exception ex)
+                    {
+                        _store.Trace("SETUP","PRINTER_SELECTION_FAILED","ERROR");
+                        Manual("PRINTER_SELECTION_FAILED");
+                        MessageBox.Show(this,"Không thể chọn máy in từ WMS: "+ex.Message,
+                            "Máy in chưa sẵn sàng",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                        break;
+                    }
+                }
+                if(p.packingReady && _printerVerified)
+                {
+                    _setupDone=true;
+                    _browser.StopStartupRouting();
+                    _store.Trace("SETUP","OPERATOR_PRINTER_VERIFIED","DONE");
+                    Status("READY","Đã xác minh quầy SDG.22 và máy in "+
+                        _verifiedPrinter+". Sẵn sàng quét Tote.");
+                    UpdateControls();
+                    HideBrowser();
+                    FocusToteIfIdle();
                     break;
                 }
-                accountOpenAttempts++;
-                if(!await Step("ACCOUNT_OPEN"))break;
             }
         }
         catch
