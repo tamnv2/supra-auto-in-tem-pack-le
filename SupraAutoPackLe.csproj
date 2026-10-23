@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>WmsPackingAssistant</AssemblyName>
     <RootNamespace>SupraAutoPackLe</RootNamespace>
-    <Version>1.8.5</Version>
+    <Version>1.8.6</Version>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <AssemblyTitle>WMS Packing &amp; Productivity Assistant</AssemblyTitle>
