@@ -29,6 +29,7 @@ public sealed class MainForm : Form
     private readonly TabPage _settingsTab=new("CÀI ĐẶT");
     private TemChanPanel? _temChanPanel;
     private bool _temChanMode;
+    private bool _switchingOperation;
     private readonly TabPage _webTab=new("TRÌNH DUYỆT WMS");
     private readonly TabPage _productionTab=new("SẢN LƯỢNG HÔM NAY");
     private readonly TabPage _aboutTab=new("THÔNG TIN PHẦN MỀM");
@@ -242,28 +243,41 @@ public sealed class MainForm : Form
             return;
         }
         _setupRunning=false;
-        _temChanMode=temChan;
-        _browser.SetOperationMode(temChan);
-        if(temChan)
+        _switchingOperation=true;
+        _tabs.SuspendLayout();
+        try
         {
-            _tabs.TabPages.Remove(_operationTab);
-            _tabs.TabPages.Remove(_productionTab);
-            if(!_tabs.TabPages.Contains(_temChanTab))
-                _tabs.TabPages.Insert(0,_temChanTab);
-            _tabs.SelectedTab=_temChanTab;
+            // Keep a stable visible tab selected while modifying TabPages. Removing
+            // the selected tab used to fire focus callbacks on controls without HWNDs.
+            _tabs.SelectedTab=_settingsTab;
+            _temChanMode=temChan;
+            _browser.SetOperationMode(temChan);
+            if(temChan)
+            {
+                _tabs.TabPages.Remove(_operationTab);
+                _tabs.TabPages.Remove(_productionTab);
+                if(!_tabs.TabPages.Contains(_temChanTab))
+                    _tabs.TabPages.Insert(0,_temChanTab);
+                _tabs.SelectedTab=_temChanTab;
+            }
+            else
+            {
+                _tabs.TabPages.Remove(_temChanTab);
+                if(!_tabs.TabPages.Contains(_operationTab))
+                    _tabs.TabPages.Insert(0,_operationTab);
+                if(!_tabs.TabPages.Contains(_productionTab))
+                    _tabs.TabPages.Add(_productionTab);
+                _setupDone=false;_printerVerified=false;_needsRecovery=false;
+                Status("INIT","Mở lại nghiệp vụ in tem lẻ, xác nhận quầy và máy in.");
+                _tabs.SelectedTab=_operationTab;
+            }
         }
-        else
+        finally
         {
-            _tabs.TabPages.Remove(_temChanTab);
-            if(!_tabs.TabPages.Contains(_operationTab))
-                _tabs.TabPages.Insert(0,_operationTab);
-            if(!_tabs.TabPages.Contains(_productionTab))
-                _tabs.TabPages.Add(_productionTab);
-            _setupDone=false;_printerVerified=false;_needsRecovery=false;
-            Status("INIT","Mở lại nghiệp vụ in tem lẻ, xác nhận quầy và máy in.");
-            _tabs.SelectedTab=_operationTab;
-            if(_browser.Ready)_setupTask=RunInitialSetupAsync();
+            _tabs.ResumeLayout(true);
+            _switchingOperation=false;
         }
+        if(!temChan && _browser.Ready)_setupTask=RunInitialSetupAsync();
         Text="WMS Packing & Productivity Assistant | "+
             (temChan?"IN TEM CHẴN":"IN TEM LẺ AUTO")+" | "+Application.ProductVersion;
         UpdateControls();
@@ -425,6 +439,7 @@ public sealed class MainForm : Form
         _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab,_settingsTab]);
         _tabs.SelectedTab=_webTab; // Visible on the very first frame, before async login begins.
         _tabs.SelectedIndexChanged+=(_,_)=>{
+            if(_switchingOperation)return;
             UpdateBrowserToggle();
             if(_tabs.SelectedTab==_productionTab)
                 RefreshProduction(_store.FilterHistory(DateTime.Today,DateTime.Today));
