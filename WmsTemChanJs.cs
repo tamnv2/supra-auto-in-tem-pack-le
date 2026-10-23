@@ -88,9 +88,17 @@ internal static class WmsTemChanJs
             norm(el.querySelector('mat-icon, .mat-icon').textContent) === 'print' :
             norm(el.innerText) === 'print') &&
           el.classList.contains('app-table-action-button'));
-      const modal = () => unique([...document.querySelectorAll(
-        'mat-dialog-container,[role="dialog"]')].filter(el =>
-          visible(el) && norm(el.innerText).includes('tùy chọn in nhãn')));
+      const modal = () => {
+        // Angular Material can expose both a role=dialog wrapper and a
+        // mat-dialog-container child for the SAME dialog. Prefer the concrete
+        // container rather than counting those nested nodes as two dialogs.
+        const containers=[...document.querySelectorAll('mat-dialog-container')]
+          .filter(el=>visible(el) && norm(el.innerText).includes('tùy chọn in nhãn'));
+        if(containers.length)return unique(containers);
+        const roles=[...document.querySelectorAll('[role="dialog"]')]
+          .filter(el=>visible(el) && norm(el.innerText).includes('tùy chọn in nhãn'));
+        return unique(roles);
+      };
       const modalInfo = (so) => {
         const dlg = modal();
         if (!dlg) return {dialogOpen:false, rangeValid:false, dialogReason:'PRINT_DIALOG_ABSENT'};
