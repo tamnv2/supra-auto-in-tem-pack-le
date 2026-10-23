@@ -33,6 +33,20 @@ internal static class WmsTemChanJs
       // Never accept a status word elsewhere on the page or guess from its color.
       const statusEvidence = () => {
         if (!document.body) return {known:false,valid:false};
+        // Field recording 2026-10-23 confirmed WMS's order header renders the
+        // green status in a mat-grid-tile, while the "Trạng thái:" caption may
+        // live in a DIFFERENT mat-grid-tile. Anchor the value to that header,
+        // not to DOM siblings or pixel coordinates.
+        const headerStatus=[...document.querySelectorAll('mat-grid-list mat-grid-tile')]
+          .filter(tile=>visible(tile) && !tile.closest('mat-dialog-container,[role="dialog"]'))
+          .filter(tile=>{
+            const text=norm(tile.innerText || tile.textContent);
+            return text===expectedStatus ||
+              text==='trạng thái: '+expectedStatus ||
+              text==='trạng thái '+expectedStatus;
+          });
+        if(headerStatus.length===1) return {known:true,valid:true,source:'ORDER_HEADER_TILE'};
+        if(headerStatus.length>1) return {known:false,valid:false,source:'HEADER_STATUS_AMBIGUOUS'};
         const walker = document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
         const labels = [], values = [];
         let node;
@@ -82,12 +96,13 @@ internal static class WmsTemChanJs
         (tabs()[0].getAttribute('aria-selected') === 'true' ||
         tabs()[0].classList.contains('mat-tab-label-active') ||
         tabs()[0].getAttribute('aria-current') === 'page');
-      const printButtons = () => [...document.querySelectorAll('button')]
-        .filter(el => enabled(el) && !!el.closest('tr,[role="row"]') &&
-          (!!el.querySelector('mat-icon, .mat-icon') ?
-            norm(el.querySelector('mat-icon, .mat-icon').textContent) === 'print' :
-            norm(el.innerText) === 'print') &&
-          el.classList.contains('app-table-action-button'));
+      const printButtons = () => [...document.querySelectorAll('button.app-table-action-button')]
+        .filter(el => enabled(el) &&
+          // Recorded real WMS HTML uses <mat-row><mat-cell> (Angular Material),
+          // not <tr>. Require an actual data row, never an unrelated page button.
+          !!el.closest('mat-row,tr,[role="row"]') &&
+          !!el.closest('mat-cell,td,[role="gridcell"]') &&
+          norm(el.querySelector('mat-icon,.mat-icon')?.textContent || el.innerText) === 'print');
       const modal = () => {
         // Angular Material can expose both a role=dialog wrapper and a
         // mat-dialog-container child for the SAME dialog. Prefer the concrete
@@ -130,7 +145,7 @@ internal static class WmsTemChanJs
         const hasTab = tabs().length === 1;
         return {ok:true,reason:!known?'STATUS_NOT_LOCATED':!statusValid?'STATUS_NOT_READY':
               !hasTab?'PACKAGE_TAB_AMBIGUOUS':'OK',
-          statusKnown:known,statusValid,tabReady:hasTab,
+          statusKnown:known,statusValid,statusSource:evidence.source || (known?'LABEL':'UNKNOWN'),tabReady:hasTab,
           tabSelected:selectedTab(),printCount:printButtons().length,
           ...modalInfo(so)};
       };
