@@ -78,6 +78,7 @@ function fixture(path='/sft3/app/saleorder/list',original='21-1129-D28 (Online)'
     getComputedStyle:()=>({display:'block',visibility:'visible'})};
   vm.runInNewContext(script,ctx);
   return {api:ctx.window.__supraPrinterV1,ctx,
+    blurWebView:()=>{expanded=false;},
     counts:()=>({confirms,closes}),saved:()=>saved};
 }
 for(const page of ['/sft3/app/saleorder/list','/sft3/app/saleorder/packing']){
@@ -93,6 +94,11 @@ for(const page of ['/sft3/app/saleorder/list','/sft3/app/saleorder/packing']){
   assert.equal(api.peek().scanDone,true);
   assert.equal(api.peek().options.length,3);
   assert.equal(api.peek().blockingDialogCount,0);
+  // Native WinForms selection steals focus: reopen Angular options on return.
+  f.blurWebView();
+  assert.equal(api.peek().optionsExpanded,false);
+  assert.equal(api.perform('EXPAND').ok,true);
+  assert.equal(api.peek().options.length,3);
   assert.equal(api.perform('PICK','Unknown Printer').ok,false);
   assert.equal(api.perform('PICK','21-1129-D29 (Online)').ok,true);
   assert.equal(api.peek().currentPrinter,'21-1129-D29 (Online)');
