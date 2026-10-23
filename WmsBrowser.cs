@@ -53,6 +53,7 @@ internal sealed class PrinterSetupPeek
     public int accountTriggerCount {get;set;}
     public bool settingsVisible {get;set;}
     public bool optionsExpanded {get;set;}
+    public bool choiceVisible {get;set;}
     public List<string> options {get;set;}=[];
     public int optionCount {get;set;}
     public bool scanDone {get;set;}
@@ -108,7 +109,7 @@ internal sealed class WmsBrowser : UserControl
         _storage.Trace("SETUP","RETURN_SO_LIST_ROUTE","OK");
         core.Navigate(TemChanList);
     }
-    public async Task<PrinterSetupPeek?> PrinterPeekAsync()
+    public async Task<PrinterSetupPeek?> PrinterPeekAsync(string selected="")
     {
         if(!Ready || _view.CoreWebView2 is null)return null;
         try
@@ -116,7 +117,8 @@ internal sealed class WmsBrowser : UserControl
             var core=_view.CoreWebView2;
             await core.ExecuteScriptAsync(WmsPrinterSetupJs.Script);
             var raw=await core.ExecuteScriptAsync(
-                "window.__supraPrinterV1?.peek() || {ok:false,reason:'NO_PRINTER_SCRIPT'}");
+                "window.__supraPrinterV1?.peek("+JsonSerializer.Serialize(selected)+
+                ") || {ok:false,reason:'NO_PRINTER_SCRIPT'}");
             return JsonSerializer.Deserialize<PrinterSetupPeek>(raw);
         }
         catch
