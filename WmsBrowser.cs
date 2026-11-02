@@ -90,6 +90,12 @@ internal sealed class TemChanPeek
     public int total {get;set;}
     public int begin {get;set;}
     public int finish {get;set;}
+    public bool skuKnown {get;set;}
+    public int skuCount {get;set;}
+    public int unitCount {get;set;}
+    public bool fullRange {get;set;}
+    public string finishRaw {get;set;}="";
+    public string totalRaw {get;set;}="";
 }
 
 internal sealed class WmsBrowser : UserControl
@@ -279,8 +285,77 @@ internal sealed class WmsBrowser : UserControl
         _lastTemChanRouteAt=DateTime.MinValue;
         _startupRouting=!temChan;
         _startupRedirects=0;
+        if(temChan)
+        {
+            if(!_webPages.TabPages.Contains(_correctionPage))
+                _webPages.TabPages.Add(_correctionPage);
+        }
+        else
+        {
+            _webPages.SelectedTab=_printPage;
+            _webPages.TabPages.Remove(_correctionPage);
+        }
         if(Ready && _view.CoreWebView2 is not null)
             _view.CoreWebView2.Navigate(temChan ? TemChanList : Target);
+    }
+    public void FocusPrintTab()
+    {
+        if(IsDisposed)return;
+        _webPages.SelectedTab=_printPage;
+    }
+
+    /// <summary>Opens the manual WMS handover page in a second WebView2 using
+    /// the existing environment and profile. Does not read, store or export cookies.</summary>
+    public async Task<bool> OpenCorrectionAsync()
+    {
+        if(!Ready || !_temChanMode || _sharedEnvironment is null || IsDisposed)
+            return false;
+        try
+        {
+            if(!_correctionReady)
+            {
+                var options=_sharedEnvironment.CreateCoreWebView2ControllerOptions();
+                options.IsInPrivateModeEnabled=false;
+                await _correctionView.EnsureCoreWebView2Async(_sharedEnvironment,options);
+                var core=_correctionView.CoreWebView2;
+                core.Settings.AreDevToolsEnabled=false;
+                core.Settings.AreDefaultContextMenusEnabled=false;
+                core.Settings.IsPasswordAutosaveEnabled=true;
+                core.NavigationStarting+=(_,e)=>{
+                    if(!AllowedUrl(e.Uri))
+                    {
+                        e.Cancel=true;
+                        _storage.Trace("WEB","CORRECTION_URL_BLOCKED","BLOCKED");
+                    }
+                };
+                core.NavigationCompleted+=(_,e)=>{
+                    _storage.Trace("EVEN",e.IsSuccess?"CORRECTION_PAGE_LOADED":"CORRECTION_PAGE_FAILED",
+                        e.IsSuccess?"DONE":"ERROR");
+                    if(!e.IsSuccess)return;
+                    if(Uri.TryCreate(core.Source,UriKind.Absolute,out var uri) &&
+                       (uri.Host.Equals("auth-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) ||
+                        uri.AbsolutePath.Contains("/login",StringComparison.OrdinalIgnoreCase)))
+                        LoginRequired?.Invoke();
+                };
+                core.NewWindowRequested+=(_,e)=>{
+                    e.Handled=true;
+                    _storage.Trace("WEB","CORRECTION_POPUP_BLOCKED","BLOCKED");
+                };
+                core.ProcessFailed+=(_,_)=>_storage.Trace("WEB","CORRECTION_PROCESS_FAILED","ERROR");
+                _correctionReady=true;
+            }
+            if(!_webPages.TabPages.Contains(_correctionPage))
+                _webPages.TabPages.Add(_correctionPage);
+            _webPages.SelectedTab=_correctionPage;
+            _correctionView.CoreWebView2.Navigate(CorrectionUrl);
+            _storage.Trace("EVEN","MANUAL_CORRECTION_OPENED","DONE");
+            return true;
+        }
+        catch(Exception ex)
+        {
+            _storage.TraceException("EVEN","CORRECTION_BROWSER_FAILED",ex);
+            return false;
+        }
     }
     public bool NavigateTemChan(string so)
     {
@@ -331,6 +406,13 @@ internal sealed class WmsBrowser : UserControl
         }
     }
     private readonly WebView2 _view=new(){Dock=DockStyle.Fill};
+    private readonly TabControl _webPages=new(){Dock=DockStyle.Fill};
+    private readonly TabPage _printPage=new("WMS · IN TEM");
+    private readonly TabPage _correctionPage=new("WMS · SỬA KIỆN");
+    private readonly WebView2 _correctionView=new(){Dock=DockStyle.Fill};
+    private CoreWebView2Environment? _sharedEnvironment;
+    private bool _correctionReady;
+    private const string CorrectionUrl="https://wms-supra.winmart.vn/sft3/app/manager/sohandover";
     private readonly LocalStore _storage;
     private readonly string _profile;
     private readonly Action _openBrowserTab;
@@ -348,7 +430,10 @@ internal sealed class WmsBrowser : UserControl
         _profile=Path.Combine(storage.Root,"webview2-profile");
         _recorder=new WmsActionRecorder(storage.Root);
         Dock=DockStyle.Fill;
-        Controls.Add(_view);
+        _printPage.Controls.Add(_view);
+        _correctionPage.Controls.Add(_correctionView);
+        _webPages.TabPages.Add(_printPage);
+        Controls.Add(_webPages);
     }
     public void Reveal()
     {
@@ -360,6 +445,7 @@ internal sealed class WmsBrowser : UserControl
         _startupRouting=false;
         // A persistent browser profile retains site sessions and passwords by user choice.
         // This application never reads, logs or exports the profile contents.
+        _correctionView.Dispose();
         _view.Dispose();
     }
     public async Task InitializeAsync()
@@ -369,6 +455,7 @@ internal sealed class WmsBrowser : UserControl
         {
             Directory.CreateDirectory(_profile);
             var env=await CoreWebView2Environment.CreateAsync(null,_profile);
+            _sharedEnvironment=env;
             var settings=env.CreateCoreWebView2ControllerOptions();
             settings.IsInPrivateModeEnabled=false;
             await _view.EnsureCoreWebView2Async(env,settings);
