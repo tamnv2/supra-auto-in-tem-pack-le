@@ -392,8 +392,8 @@ internal sealed class LocalStore
     {
         if(string.IsNullOrWhiteSpace(item.Id) ||
            !Regex.IsMatch(item.SO,@"^[A-Z0-9_-]{5,50}$") ||
-           !int.TryParse(item.BeforeCount,NumberStyles.Integer,CultureInfo.InvariantCulture,out _) &&
-             !Regex.IsMatch(item.BeforeCount,@"^[0-9.,]{1,25}$") ||
+           (string.IsNullOrWhiteSpace(item.BeforeCount) ||
+             item.BeforeCount.Length>40 || item.BeforeCount.Any(char.IsControl)) ||
            item.AfterCount<1 || item.AfterCount>999999 ||
            string.IsNullOrWhiteSpace(item.Reason) || item.Reason.Length>300)
             return false;
@@ -456,9 +456,20 @@ internal sealed class LocalStore
         }
     }
 
-    public void ExportCartonCorrectionsXlsx(string filename)
+    public IReadOnlyList<CartonCorrectionRow> FilterCartonCorrections(
+        DateTime? from=null,DateTime? to=null)
     {
-        var rows=CartonCorrections();
+        if(from.HasValue && to.HasValue && from.Value.Date>to.Value.Date)
+            throw new ArgumentException("Khoảng ngày không hợp lệ.");
+        return CartonCorrections().Where(r=>
+            (!from.HasValue || r.CorrectedAt.Date>=from.Value.Date) &&
+            (!to.HasValue || r.CorrectedAt.Date<=to.Value.Date)).ToList();
+    }
+
+    public void ExportCartonCorrectionsXlsx(string filename,
+        DateTime? from=null,DateTime? to=null)
+    {
+        var rows=FilterCartonCorrections(from,to);
         using var book=new XLWorkbook();
         var sheet=book.AddWorksheet("Báo cáo sửa kiện");
         string[] columns=["Mã SO","Thời gian sửa kiện","Số kiện trước khi sửa",
