@@ -18,6 +18,7 @@
   <ItemGroup>
     <!-- Keep the standalone test utility out of the main application compilation. -->
     <Compile Remove="tools/TemChanRecorder/**/*.cs" />
+    <None Update="Create-Desktop-Shortcut.cmd" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3351.48"/>
     <PackageReference Include="ClosedXML" Version="0.104.2"/>
   </ItemGroup>
