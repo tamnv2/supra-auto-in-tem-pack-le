@@ -40,3 +40,22 @@
 
 ## Tách phạm vi
 Repo này hiện là ứng dụng in tem WMS. Nhánh design/drive-sync-portable-ui chỉ thêm HTML/Markdown thiết kế trong thư mục design/drive-sync-portable. Không sửa source, config hay workflow WMS. Khi được duyệt, ứng dụng đồng bộ cần repo độc lập để tách CI/release/credentials.
+
+## Bản dựng Windows v0.1 — sau khi chốt UX
+
+Mã nguồn WinForms đã tạo tại src/DriveSyncPortable/ và workflow build riêng tại .github/workflows/build-drivesync-ui.yml.
+
+- MainForm.cs: bố cục đã duyệt, tài khoản, 2 ô thư mục, toggle tự khởi động, chạy ngầm, tạm dừng và nhật ký minh họa.
+- VisualControls.cs: RoundedPanel, RoundedButton, ToggleSwitch theo palette đã duyệt.
+- Program.cs: entry point và UI smoke test.
+- Build win-x64 net8.0-windows self-contained single-file, manifest asInvoker.
+- Nút chọn thư mục laptop đã hoạt động ở cấp UI; không đọc/upload file.
+- Tự khởi động chỉ viết/xóa HKCU Run/DriveSyncPortableUI khi người dùng chủ động bật; có thể bị policy chặn.
+- Chạy ngầm thu nhỏ vào khay hệ thống, menu mở/tạm dừng mô phỏng/thoát; chưa có engine đồng bộ.
+- Đăng nhập Google và chọn thư mục Google Drive là mục CHƯA TRIỂN KHAI, không yêu cầu mật khẩu.
+- Tạm dừng chỉ thay đổi trạng thái UI vì chưa có sync thực. Nhật ký được dán nhãn dữ liệu mẫu.
+- Source và bản phát hành WMS không bị chỉnh sửa.
+
+### Tải và chạy thử giao diện
+
+Vào GitHub Actions → Build DriveSync Portable UI → run PASS → artifact DriveSyncPortable-UI-Preview-win-x64. Giải nén hai lớp ZIP nếu cần, chạy DriveSyncPortable.exe nếu Windows policy cho phép.
