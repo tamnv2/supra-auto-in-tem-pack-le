@@ -14,7 +14,8 @@ internal sealed record DriveItem(
     public bool Folder => MimeType == "application/vnd.google-apps.folder";
     public bool NativeGoogleFile => MimeType.StartsWith("application/vnd.google-apps.", StringComparison.Ordinal)
                                     && !Folder;
-    public string Version => Md5 + "|" + ModifiedTime + "|" + Size;
+    public string Version => string.IsNullOrEmpty(Md5)
+        ? "time:" + ModifiedTime + "|" + Size : "md5:" + Md5 + "|" + Size;
 }
 
 internal sealed class GoogleDriveApi : IDisposable
@@ -279,7 +280,8 @@ internal sealed class GoogleDriveApi : IDisposable
         throw new HttpRequestException("Không khởi tạo được upload Google Drive: HTTP " + code);
     }
 
-    public async Task DownloadAsync(string remoteId, string destination, CancellationToken ct)
+    public async Task DownloadAsync(string remoteId, string destination, string expectedLocalState,
+                                    string remoteMd5, CancellationToken ct)
     {
         string temp = destination + ".drivesync-partial";
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
@@ -293,6 +295,26 @@ internal sealed class GoogleDriveApi : IDisposable
                 await remote.CopyToAsync(local, 1024 * 1024, ct);
                 await local.FlushAsync(ct);
             }
+
+            if (!string.IsNullOrEmpty(remoteMd5))
+            {
+                await using var verifyStream = new FileStream(temp, FileMode.Open, FileAccess.Read,
+                    FileShare.Read, 1024 * 1024, true);
+                string receivedMd5 = Convert.ToHexString(
+                    await MD5.HashDataAsync(verifyStream, ct)).ToLowerInvariant();
+                if (!receivedMd5.Equals(remoteMd5, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Checksum file tải về không đúng; không thay thế file cũ.");
+            }
+
+            string actualLocalState = "";
+            if (File.Exists(destination))
+            {
+                var current = new FileInfo(destination);
+                actualLocalState = current.Length + "|" + current.LastWriteTimeUtc.Ticks;
+            }
+            if (expectedLocalState != actualLocalState)
+                throw new IOException("File trên máy đã thay đổi khi tải về; không ghi đè.");
+
             File.Move(temp, destination, true);
         }
         finally
