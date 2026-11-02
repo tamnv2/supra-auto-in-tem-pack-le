@@ -334,6 +334,7 @@ internal sealed class SyncEngine : IDisposable
             catch (Exception ex)
             {
                 Log("Chưa đồng bộ được: " + relative + " · " + SafeError(ex));
+                Signal(); // Retry failures without waiting for another user edit.
             }
         }
     }
@@ -363,7 +364,8 @@ internal sealed class SyncEngine : IDisposable
                 string conflict = MakeConflictPath(localFile!);
                 File.Copy(localFile!, conflict, false);
                 Log("Giữ bản laptop xung đột: " + Path.GetFileName(conflict));
-                await _drive.DownloadAsync(remoteFile!.Id, localFile!, ct);
+                string expected = LocalVersion(localFile!);
+                await _drive.DownloadAsync(remoteFile!.Id, localFile!, expected, remoteFile.Md5, ct);
                 SaveRecord(relative, remoteFile, localFile!);
             }
             else if (hasLocal)
@@ -444,7 +446,8 @@ internal sealed class SyncEngine : IDisposable
     private async Task DownloadFileAsync(string relative, DriveItem item, CancellationToken ct)
     {
         string target = LocalPath(relative);
-        await _drive.DownloadAsync(item.Id, target, ct);
+        string expected = File.Exists(target) ? LocalVersion(target) : "";
+        await _drive.DownloadAsync(item.Id, target, expected, item.Md5, ct);
         SaveRecord(relative, item, target);
         Log("↓ Đã tải về: " + relative);
     }
