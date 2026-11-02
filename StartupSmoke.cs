@@ -61,16 +61,22 @@ internal static class StartupSmoke
             using(var book=new XLWorkbook(cartonFile))
             {
                 var ws=book.Worksheet("Báo cáo sửa kiện");
-                if(ws.LastRowUsed()?.RowNumber()!=3 ||
-                   ws.Cell(1,1).GetString()!="Mã SO" ||
-                   ws.Cell(1,5).GetString()!="Lý do sửa" ||
-                   ws.Cell(2,1).GetString()!="SO12345678" ||
-                   ws.Cell(2,3).GetDouble()!=31 ||
-                   ws.Cell(2,4).GetDouble()!=30 ||
-                   ws.Cell(2,5).GetString()!="Kiểm đếm thực tế thiếu một kiện" ||
-                   ws.Cell(2,2).GetDateTime()!=new DateTime(2026,11,2,17,52,20) ||
-                   ws.Cell(3,5).GetString().StartsWith("="))
-                    throw new Exception("CARTON_CORRECTION_XLSX_CONTENT_FAILED");
+                if(ws.LastRowUsed()?.RowNumber()!=3)
+                    throw new Exception("CARTON_XLSX_ROWS");
+                if(ws.Cell(1,1).GetString()!="Mã SO" ||
+                   ws.Cell(1,5).GetString()!="Lý do sửa")
+                    throw new Exception("CARTON_XLSX_HEADER");
+                if(ws.Cell(2,1).GetString()!="SO12345678")
+                    throw new Exception("CARTON_XLSX_SO");
+                if(ws.Cell(2,3).GetDouble()!=31 ||
+                   ws.Cell(2,4).GetDouble()!=30)
+                    throw new Exception("CARTON_XLSX_QUANTITY");
+                if(ws.Cell(2,5).GetString()!="Kiểm đếm thực tế thiếu một kiện")
+                    throw new Exception("CARTON_XLSX_REASON");
+                if(ws.Cell(2,2).GetDateTime()!=new DateTime(2026,11,2,17,52,20))
+                    throw new Exception("CARTON_XLSX_TIMESTAMP");
+                if(ws.Cell(3,5).HasFormula)
+                    throw new Exception("CARTON_XLSX_FORMULA");
             }
             var checkpointId=Guid.NewGuid().ToString("N");
             var checkpoint=new HistoryRow("15/10/2026","09:00:00","09:00:03",3,
@@ -211,6 +217,13 @@ internal static class StartupSmoke
                 "CARTON_CORRECTION_RESTART_FAILED" => 53,
                 "CARTON_CORRECTION_DATE_FILTER_FAILED" => 54,
                 "CARTON_CORRECTION_XLSX_CONTENT_FAILED" => 55,
+                "CARTON_XLSX_ROWS" => 56,
+                "CARTON_XLSX_HEADER" => 57,
+                "CARTON_XLSX_SO" => 58,
+                "CARTON_XLSX_QUANTITY" => 59,
+                "CARTON_XLSX_REASON" => 60,
+                "CARTON_XLSX_TIMESTAMP" => 61,
+                "CARTON_XLSX_FORMULA" => 62,
                 _ => 1
             };
         }
