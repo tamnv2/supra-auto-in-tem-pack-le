@@ -2,7 +2,7 @@ using Microsoft.Win32;
 
 namespace DriveSyncPortable;
 
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     private readonly Panel _viewport = new() { Dock = DockStyle.Fill, BackColor = Theme.Page, AutoScroll = true };
     private readonly RoundedPanel _hero = new() { FillColor = Theme.PaleGreen, StrokeColor = Color.FromArgb(214, 236, 229) };
@@ -28,7 +28,7 @@ public sealed class MainForm : Form
     private readonly RoundedButton _togglePause = new("⏸  Tạm dừng") { Size = new Size(130, 40) };
     private readonly ToggleSwitch _startup = new();
     private readonly NotifyIcon _tray;
-    private readonly Label _footer = Theme.Text("BẢN DEMO UI · Chưa kết nối Google hoặc đồng bộ dữ liệu thật",
+    private readonly Label _footer = Theme.Text("DriveSync Portable · Đồng bộ tự động · Không yêu cầu Admin",
         0, 0, 810, 35, 8, false, Theme.Muted);
     private readonly Label _folderHeader = Theme.Text("Thư mục đồng bộ", 0, 0, 400, 28, 10, true);
     private readonly Label _folderArrow = Theme.Text("⇆  Đồng bộ tự động hai chiều", 0, 0, 600, 25, 9, true, Theme.Green);
@@ -41,7 +41,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        Text = "DriveSync Portable — Bản duyệt giao diện";
+        Text = "DriveSync Portable — Đồng bộ Google Drive";
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(920, 836);
         MinimumSize = new Size(805, 690);
@@ -53,7 +53,7 @@ public sealed class MainForm : Form
         _tray = new NotifyIcon
         {
             Icon = Icon,
-            Text = "DriveSync Portable (UI Demo)",
+            Text = "DriveSync Portable",
             Visible = false
         };
         var menu = new ContextMenuStrip();
@@ -82,13 +82,9 @@ public sealed class MainForm : Form
 
         _pause.Click += (_, _) => TogglePause();
         _togglePause.Click += (_, _) => TogglePause();
-        _login.Click += (_, _) => ExplainUnavailable(
-            "Đăng nhập Google",
-            "Giao diện đã dựng theo bản anh duyệt. Bản UI này CHƯA tích hợp Google OAuth và chưa cấp quyền Google Drive. Không yêu cầu nhập mật khẩu ở đây.");
-        _remoteChoose.Click += (_, _) => ExplainUnavailable(
-            "Chọn thư mục Google Drive",
-            "Chức năng duyệt thư mục Google Drive chỉ hoạt động sau khi tích hợp OAuth và Google Drive API.");
-        _localChoose.Click += (_, _) => ChooseLocalFolder();
+        _login.Click += async (_, _) => await SignInGoogleAsync();
+        _remoteChoose.Click += async (_, _) => await ChooseRemoteFolderAsync();
+        _localChoose.Click += async (_, _) => await ChooseLocalFolderAsync();
         _background.Click += (_, _) => HideToTray();
         _startup.CheckedChanged += (_, _) => ChangeStartup();
 
@@ -96,6 +92,7 @@ public sealed class MainForm : Form
         Resize += (_, _) => LayoutCards();
         Shown += (_, _) => LayoutCards();
         LayoutCards();
+        InitializeSync();
     }
 
     private Panel MakeHeader()
@@ -107,7 +104,7 @@ public sealed class MainForm : Form
         top.Controls.Add(brand);
         top.Controls.Add(Theme.Text("DriveSync Portable", 86, 18, 350, 28, 17, true));
         top.Controls.Add(Theme.Text("Google Drive · Windows Desktop", 88, 48, 370, 20, 8, false, Theme.Muted));
-        var trial = Theme.Text("BẢN DUYỆT GIAO DIỆN v0.1", 0, 27, 235, 27, 8, true, Theme.Blue);
+        var trial = Theme.Text("GOOGLE DRIVE · PORTABLE", 0, 27, 235, 27, 8, true, Theme.Blue);
         trial.TextAlign = ContentAlignment.MiddleCenter;
         trial.BackColor = Theme.PaleBlue;
         trial.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -169,19 +166,18 @@ public sealed class MainForm : Form
     private void BuildActivity()
     {
         _activity.Controls.Add(Theme.Text("Hoạt động gần đây", 20, 15, 260, 25, 10, true));
-        var demo = Theme.Text("DỮ LIỆU MẪU", 0, 15, 130, 23, 8, true, Theme.Muted);
+        var demo = Theme.Text("HOẠT ĐỘNG ĐỒNG BỘ", 0, 15, 130, 23, 8, true, Theme.Muted);
         demo.Name = "demoBadge";
         demo.TextAlign = ContentAlignment.MiddleRight;
         _activity.Controls.Add(demo);
         _activity.Controls.Add(Theme.Text("↑", 20, 57, 28, 24, 13, true, Theme.Green));
-        _activity.Controls.Add(Theme.Text("BaoCao.xlsx · Đã tải lên", 50, 57, 290, 24, 9));
+        _activity.Controls.Add(Theme.Text("Chưa có hoạt động", 50, 57, 290, 24, 9));
         _activity.Controls.Add(Theme.Text("↓", 20, 96, 28, 24, 13, true, Theme.Blue));
-        _activity.Controls.Add(Theme.Text("KeHoach.pdf · Đã tải về", 50, 96, 290, 24, 9));
+        _activity.Controls.Add(Theme.Text("", 50, 96, 290, 24, 9));
         _activity.Controls.Add(Theme.Text("✓", 20, 135, 28, 24, 13, true, Theme.Green));
-        _activity.Controls.Add(Theme.Text("Không còn file đang chờ", 50, 135, 290, 24, 9));
+        _activity.Controls.Add(Theme.Text("", 50, 135, 290, 24, 9));
         var log = new RoundedButton("Xem nhật ký") { Size = new Size(136, 37), Name = "logButton" };
-        log.Click += (_, _) => ExplainUnavailable("Nhật ký đồng bộ",
-            "Các dòng ở trên là dữ liệu minh họa. Bản UI hiện chưa chạy engine đồng bộ nên chưa có nhật ký thật.");
+        log.Click += (_, _) => ShowRecentActivity();
         _activity.Controls.Add(log);
     }
 
@@ -230,29 +226,16 @@ public sealed class MainForm : Form
         _viewport.AutoScrollMinSize = new Size(w + 48, y + 48);
     }
 
-    private void ChooseLocalFolder()
-    {
-        using var dialog = new FolderBrowserDialog
-        {
-            Description = "Chọn thư mục laptop để đồng bộ (chỉ chọn, chưa upload dữ liệu)",
-            UseDescriptionForTitle = true,
-            ShowNewFolderButton = true
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        _localPath.Text = dialog.SelectedPath;
-        _localPath.AccessibleDescription = dialog.SelectedPath;
-        MessageBox.Show(this,
-            "Đã chọn thư mục trên laptop.\n\nĐây là bản duyệt giao diện. Chưa có file nào được tải lên hoặc tải xuống Google Drive.",
-            "DriveSync Portable — UI Demo", MessageBoxButtons.OK, MessageBoxIcon.Information);
-    }
-
     private void TogglePause()
     {
         _paused = !_paused;
+        _sync?.Pause(_paused);
         _pause.Text = _paused ? "▶  Tiếp tục" : "⏸  Tạm dừng";
         _togglePause.Text = _pause.Text;
-        _statusTitle.Text = _paused ? "Đã tạm dừng (giao diện)" : "Chưa kết nối Google";
-        _statusSubtitle.Text = _paused ? "Chưa có engine đồng bộ đang chạy" : "Đăng nhập để bắt đầu đồng bộ";
+        _statusTitle.Text = _paused ? "Đã tạm dừng" :
+            (_sync?.IsRunning == true ? "Đang theo dõi file" : "Chưa kết nối Google");
+        _statusSubtitle.Text = _paused ? "Các thay đổi sẽ được xử lý khi tiếp tục" :
+            (_sync?.IsRunning == true ? "Tự động đồng bộ hai chiều" : "Chọn tài khoản và thư mục để bắt đầu");
         _hero.FillColor = _paused ? Color.FromArgb(255, 247, 232) : Theme.PaleGreen;
         _hero.Invalidate();
     }
@@ -263,7 +246,7 @@ public sealed class MainForm : Form
         _tray.Visible = true;
         Hide();
         _tray.ShowBalloonTip(1700, "DriveSync Portable — Bản UI",
-            "Đã thu nhỏ vào khay hệ thống. Chưa đồng bộ file thật.", ToolTipIcon.Info);
+            "Đã chạy ngầm. Tệp thay đổi sẽ tự đồng bộ khi có kết nối.", ToolTipIcon.Info);
     }
 
     private void RestoreFromTray()
@@ -329,6 +312,8 @@ public sealed class MainForm : Form
             HideToTray();
             return;
         }
+        _sync?.Dispose();
+        _api?.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         base.OnFormClosing(e);
