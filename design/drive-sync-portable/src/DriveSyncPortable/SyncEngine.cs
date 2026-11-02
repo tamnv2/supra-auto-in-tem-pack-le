@@ -184,8 +184,9 @@ internal sealed class SyncEngine : IDisposable
                 Report("Đã đồng bộ · Không có thay đổi");
                 return;
             }
-            await ReconcileAsync(ct);
-            Report("Đã đồng bộ · Đang theo dõi thay đổi");
+            bool allSucceeded = await ReconcileAsync(ct);
+            Report(allSucceeded ? "Đã đồng bộ · Đang theo dõi thay đổi"
+                                : "Còn file chưa đồng bộ · Tự thử lại sau 60 giây");
         }
         finally { _syncLock.Release(); }
     }
@@ -308,8 +309,9 @@ internal sealed class SyncEngine : IDisposable
         return _remoteFolders![current];
     }
 
-    private async Task ReconcileAsync(CancellationToken ct)
+    private async Task<bool> ReconcileAsync(CancellationToken ct)
     {
+        bool allSucceeded = true;
         var local = ReadLocalFiles();
         var remote = _remoteFiles!;
         // Remote folders are created even if empty, without blindly removing local folders.
@@ -333,10 +335,12 @@ internal sealed class SyncEngine : IDisposable
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
+                allSucceeded = false;
                 Log("Chưa đồng bộ được: " + relative + " · " + SafeError(ex));
                 Interlocked.Exchange(ref _dirty, 1); // Retry on next 60s cycle; avoid request bursts.
             }
         }
+        return allSucceeded;
     }
 
     private static bool IsSafeRelative(string path)
