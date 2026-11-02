@@ -44,6 +44,8 @@ internal sealed class TemChanPanel : UserControl
     private bool _busy;
     private bool _printerReady;
     private bool _manualPrinterApproval;
+    private TableLayoutPanel? _commandContainer;
+    private TableLayoutPanel? _shell;
     public bool PrinterReady=>_printerReady;
     public bool OperatorReady=>_manualPrinterApproval;
     public void PrinterProgress(string message)
@@ -57,7 +59,9 @@ internal sealed class TemChanPanel : UserControl
         _printerReady=ready;
         _manualPrinterApproval=false;
         if(IsDisposed)return;
-        _supraReady.Visible=!ready&&!_busy&&!_uncertain;
+        _supraReady.Visible=true;
+        _supraReady.Enabled=!ready&&!_busy&&!_uncertain;
+        _supraReady.Text=ready?"SUPRA ĐÃ SẴN SÀNG":"SUPRA SẴN SÀNG";
         _so.Enabled=ready&&!_busy&&!_uncertain;
         if(ready)
         {
@@ -89,7 +93,8 @@ internal sealed class TemChanPanel : UserControl
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,112));
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,68));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,156));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,78));
+        _shell=shell;
         shell.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         shell.Controls.Add(new Label { Dock=DockStyle.Fill,
             Text="IN TEM CHẴN | Nhập SO để mở trực tiếp đơn hàng",
@@ -109,21 +114,32 @@ internal sealed class TemChanPanel : UserControl
         row.Controls.Add(hint,1,1);
         shell.Controls.Add(row,0,1);
         shell.Controls.Add(_state,0,2);
-        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3,RowCount=3 };
-        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,40));
-        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
-        commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
-        commands.RowStyles.Add(new RowStyle(SizeType.Percent,33.3f));
-        commands.RowStyles.Add(new RowStyle(SizeType.Percent,33.3f));
-        commands.RowStyles.Add(new RowStyle(SizeType.Percent,33.4f));
+        // Four primary actions always share one visually balanced row.
+        // The separate, normally hidden review button occupies a second row
+        // only after a possible non-idempotent WMS operation.
+        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=4,
+            RowCount=2,Margin=Padding.Empty,Padding=Padding.Empty };
+        _commandContainer=commands;
+        foreach(var share in new[]{25f,25f,25f,25f})
+            commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,share));
+        commands.RowStyles.Add(new RowStyle(SizeType.Absolute,68));
+        commands.RowStyles.Add(new RowStyle(SizeType.Absolute,0));
+        foreach(var button in new[]{_browserToggle,_supraReady,_stopPrint,_exportCorrections})
+        {
+            button.Dock=DockStyle.Fill;
+            button.Margin=new Padding(4,5,4,5);
+            button.Font=new Font("Segoe UI",10.5f,FontStyle.Bold);
+        }
+        _browserToggle.Text="HIỆN TRÌNH DUYỆT";
+        _exportCorrections.Text="XUẤT BÁO CÁO SỬA KIỆN";
         commands.Controls.Add(_browserToggle,0,0);
         commands.Controls.Add(_supraReady,1,0);
-        commands.Controls.Add(_manual,2,0);
-        commands.Controls.Add(_stopPrint,0,1);
-        commands.Controls.Add(_correctionDone,1,1);
-        commands.SetColumnSpan(_correctionDone,2);
-        commands.Controls.Add(_exportCorrections,0,2);
-        commands.SetColumnSpan(_exportCorrections,3);
+        commands.Controls.Add(_stopPrint,2,0);
+        commands.Controls.Add(_exportCorrections,3,0);
+        _manual.Margin=new Padding(4);
+        commands.Controls.Add(_manual,0,1);
+        commands.SetColumnSpan(_manual,4);
+        _manual.VisibleChanged+=(_,_)=>RefreshReviewButtonLayout();
         shell.Controls.Add(commands,0,3);
         var wrap=new Panel { Dock=DockStyle.Fill,Padding=new Padding(14),BackColor=Color.White };
         wrap.Controls.Add(_steps);
@@ -173,7 +189,9 @@ internal sealed class TemChanPanel : UserControl
                 "Xác nhận kiểm tra WMS",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)
                 return;
             _uncertain=false;_manual.Visible=false;_so.Enabled=_printerReady;
-            _supraReady.Visible=!_printerReady;
+            _supraReady.Visible=true;
+            _supraReady.Enabled=!_printerReady;
+            _supraReady.Text=_printerReady?"SUPRA ĐÃ SẴN SÀNG":"SUPRA SẴN SÀNG";
             _log.Trace("EVEN","MANUAL_REVIEW_ACCEPTED","DONE");
             Step("Đã xác nhận xử lý thủ công. Có thể nhập SO tiếp theo.");
             _state.Text="SẴN SÀNG · Đã kiểm tra WMS";
@@ -191,13 +209,25 @@ internal sealed class TemChanPanel : UserControl
         _manualReadyAcknowledged(); // cancel any superseded automatic setup first
         _manualPrinterApproval=true;
         _printerReady=true;
-        _supraReady.Visible=false;
+        _supraReady.Visible=true;
+        _supraReady.Enabled=false;
+        _supraReady.Text="SUPRA ĐÃ SẴN SÀNG";
         _so.Enabled=true;
         _state.Text="SUPRA SẴN SÀNG · Đã xác nhận thủ công · Nhập SO và Enter";
         Step("Đã xác nhận WMS thủ công. Bỏ qua tự chọn máy in; WMS vẫn kiểm tra từng SO.");
         _log.Trace("EVEN","OPERATOR_MANUAL_READY","DONE");
         _hideBrowser();
         FocusSo();
+    }
+
+    private void RefreshReviewButtonLayout()
+    {
+        if(_commandContainer is null || _shell is null || _shell.IsDisposed)return;
+        var review=_manual.Visible;
+        _commandContainer.RowStyles[1].Height=review?50:0;
+        _shell.RowStyles[3].Height=review?130:78;
+        _commandContainer.PerformLayout();
+        _shell.PerformLayout();
     }
 
     public void ConfirmCorrectionFinished()
@@ -435,7 +465,8 @@ internal sealed class TemChanPanel : UserControl
         if(!_printerReady)throw new TemChanStop("Phiên WMS đã thay đổi; không sửa kiện.");
         if(!await _browser.OpenCorrectionAsync())
             throw new TemChanStop("Không mở được WMS sửa kiện.");
-        _showBrowser();
+        // The secondary WebView2 runs WMS automation without switching the
+        // visible main application tab. The operator remains on IN TEM CHẴN.
         _state.Text="ĐANG SỬA KIỆN · Chưa in tem";
         Step("Mở trang bàn giao SO; tìm đúng đơn, sửa số lượng và xác nhận.");
         await WaitHandoverAsync(so,quantity,
@@ -505,7 +536,8 @@ internal sealed class TemChanPanel : UserControl
         _busy=true;
         _so.Enabled=false;
         _manual.Visible=false;
-        _supraReady.Visible=false;
+        _supraReady.Visible=true;
+        _supraReady.Enabled=false;
         _correctionDone.Visible=false;
         bool printIssued=false;
         bool correctionMayHaveSubmitted=false;
@@ -629,19 +661,16 @@ internal sealed class TemChanPanel : UserControl
                             original=p.finish>0?p.finish.ToString():"Không đọc được";
                         pendingCorrection=new PendingCorrection(
                             original,correction.Quantity,correction.Reason);
-                        bool browserInitiallyShown=BrowserIsShown;
-                        int toggleGeneration=_browserToggleGeneration;
+                        // Browser visibility is controlled by the operator,
+                        // not by the correction automation.
                         await AutoCorrectCartonsAsync(so,correction.Quantity,ct,
                             ()=>correctionMayHaveSubmitted=true);
                         expectedAfterCorrection=correction.Quantity;
                         _log.Trace("EVEN","CARTON_RECHECK_AFTER_CORRECTION","WAIT",
                             _workClock.ElapsedMilliseconds);
                         _browser.FocusPrintTab();
-                        // Retain an explicitly shown WMS browser. Never override a
-                        // user toggle made while the correction automation was running.
-                        if(!browserInitiallyShown &&
-                           toggleGeneration==_browserToggleGeneration)
-                            _hideBrowser();
+                        // Do not call ShowBrowser or HideBrowser here: preserve
+                        // both visibility and active top-level IN TEM CHẴN tab.
                         needRecheck=true;
                         break;
                     }
@@ -733,7 +762,9 @@ internal sealed class TemChanPanel : UserControl
             _printCancel=null;
             _busy=false;
             _so.Enabled=_printerReady&&!_uncertain;
-            _supraReady.Visible=!_printerReady&&!_uncertain;
+            _supraReady.Visible=true;
+            _supraReady.Enabled=!_printerReady&&!_uncertain;
+            _supraReady.Text=_printerReady?"SUPRA ĐÃ SẴN SÀNG":"SUPRA SẴN SÀNG";
             if(!_uncertain)FocusSo();
         }
     }
