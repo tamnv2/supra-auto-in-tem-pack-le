@@ -18,7 +18,7 @@ internal sealed record DriveItem(
         ? "time:" + ModifiedTime + "|" + Size : "md5:" + Md5 + "|" + Size;
 }
 
-internal sealed class GoogleDriveApi : IDisposable
+internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
 {
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(30) };
     private readonly SettingsStore _store;
