@@ -215,3 +215,4 @@ for(const total of ['1.5','0','-2']){
 console.log('Even carton confirmation and dual-operation checks PASS: status, exact SO, integer box range, unique print, one-shot click');
 
 require('./v1.8.12-carton-correction.cjs');
+require('./v1.8.13-correction-report.cjs');
