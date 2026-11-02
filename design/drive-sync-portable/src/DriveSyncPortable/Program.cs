@@ -43,6 +43,14 @@ internal static class Program
             }
         }
 
+        using var singleInstance = new Mutex(true,
+            "Local\\DriveSyncPortable-" + Environment.UserName, out bool firstInstance);
+        if (!firstInstance)
+        {
+            MessageBox.Show("DriveSync Portable đang chạy. Hãy mở từ biểu tượng khay hệ thống.",
+                "DriveSync Portable", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return 0;
+        }
         Application.Run(new MainForm());
         return 0;
     }
