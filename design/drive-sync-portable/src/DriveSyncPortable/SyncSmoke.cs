@@ -5,6 +5,7 @@ namespace DriveSyncPortable;
 // In-memory Google Drive emulator: tests the REAL SyncEngine with zero network requests.
 internal sealed class FakeDrive : ICloudDriveApi
 {
+    public bool IsSignedIn => true;
     private sealed class Node
     {
         public string Id = "";
