@@ -47,12 +47,12 @@ public sealed class MainForm : Form
         MinimumSize = new Size(805, 690);
         BackColor = Theme.Page;
         Font = new Font("Segoe UI", 9);
-        Icon = SystemIcons.Application;
+        Icon = AppIcon.Create();
         AutoScaleMode = AutoScaleMode.Dpi;
 
         _tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = Icon,
             Text = "DriveSync Portable (UI Demo)",
             Visible = false
         };
