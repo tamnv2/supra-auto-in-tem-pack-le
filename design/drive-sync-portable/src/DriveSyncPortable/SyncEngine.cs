@@ -334,7 +334,7 @@ internal sealed class SyncEngine : IDisposable
             catch (Exception ex)
             {
                 Log("Chưa đồng bộ được: " + relative + " · " + SafeError(ex));
-                Signal(); // Retry failures without waiting for another user edit.
+                Interlocked.Exchange(ref _dirty, 1); // Retry on next 60s cycle; avoid request bursts.
             }
         }
     }
