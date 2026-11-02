@@ -108,6 +108,11 @@ public sealed class MainForm : Form
             _browser.Reveal();
             UpdateControls();
         };
+        // Desktop EXE icon is embedded during build; keep taskbar/titlebar consistent.
+        try { Icon=Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+        catch { /* Windows will display the EXE resource icon when available. */ }
+        ShowIcon=true;
+        ShowInTaskbar=true;
         Text="WMS Packing & Productivity Assistant | "+Application.ProductVersion;
         _store.Trace("APP","START","DONE");
         Font=new Font("Segoe UI",10);
@@ -131,7 +136,8 @@ public sealed class MainForm : Form
             using(var choice=BuildStartupChoice())
             {
                 choice.ShowDialog(this);
-                SwitchOperation(choice.Tag is bool selected && selected,true);
+                // Auto lẻ is temporarily disabled, including a closed/dismissed chooser.
+                SwitchOperation(true,true);
             }
             _tabs.SelectedTab=_webTab;
             try
@@ -260,7 +266,8 @@ public sealed class MainForm : Form
             Text="CHỌN NGHIỆP VỤ",StartPosition=FormStartPosition.CenterParent,
             Width=530,Height=255,MinimumSize=new Size(500,240),MaximizeBox=false,
             MinimizeBox=false,FormBorderStyle=FormBorderStyle.FixedDialog,
-            Font=new Font("Segoe UI",11),BackColor=Color.FromArgb(247,249,252)
+            Font=new Font("Segoe UI",11),BackColor=Color.FromArgb(247,249,252),
+            Tag=true,Icon=Icon
         };
         var layout=new TableLayoutPanel {
             Dock=DockStyle.Fill,Padding=new Padding(20),ColumnCount=2,RowCount=2
@@ -276,7 +283,9 @@ public sealed class MainForm : Form
         },0,0);
         layout.SetColumnSpan(layout.GetControlFromPosition(0,0)!,2);
         var even=MakeButton("IN TEM CHẴN",210);
-        var loose=MakeButton("IN TEM LẺ AUTO",210);
+        var loose=MakeButton("IN TEM LẺ AUTO · TẠM KHÓA",210);
+        loose.Enabled=false;loose.BackColor=Color.FromArgb(218,222,228);
+        loose.ForeColor=Color.FromArgb(110,118,129);
         even.Dock=DockStyle.Fill;loose.Dock=DockStyle.Fill;
         even.Margin=new Padding(4);loose.Margin=new Padding(4);
         even.Click+=(_,_)=>{choice.Tag=true;choice.DialogResult=DialogResult.OK;choice.Close();};
@@ -306,7 +315,9 @@ public sealed class MainForm : Form
         buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
         buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,50));
         var ch=MakeButton("CHUYỂN SANG IN TEM CHẴN",250);
-        var le=MakeButton("CHUYỂN SANG IN TEM LẺ AUTO",250);
+        var le=MakeButton("IN TEM LẺ AUTO · TẠM KHÓA",250);
+        le.Enabled=false;le.BackColor=Color.FromArgb(218,222,228);
+        le.ForeColor=Color.FromArgb(110,118,129);
         ch.Dock=DockStyle.Fill;le.Dock=DockStyle.Fill;
         ch.Margin=new Padding(4);le.Margin=new Padding(4);
         ch.Click+=(_,_)=>SwitchOperation(true);
