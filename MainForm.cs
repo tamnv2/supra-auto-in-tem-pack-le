@@ -75,6 +75,7 @@ public sealed class MainForm : Form
     {
         _people=_store.LoadPeople();
         _browser=new WmsBrowser(_store,ShowBrowser);
+        _browser.CorrectionFinished+=()=>_temChanPanel?.ConfirmCorrectionFinished();
         _browser.LoginRequired+=()=>
         {
             if(_temChanMode)
