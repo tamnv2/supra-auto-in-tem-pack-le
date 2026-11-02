@@ -2,6 +2,7 @@ namespace DriveSyncPortable;
 
 internal interface ICloudDriveApi
 {
+    bool IsSignedIn { get; }
     Task<string> GetStartPageTokenAsync(CancellationToken ct);
     Task<(bool changed, string nextToken)> ReadChangesAsync(string pageToken, CancellationToken ct);
     Task<List<DriveItem>> ListChildrenAsync(string parentId, CancellationToken ct);
