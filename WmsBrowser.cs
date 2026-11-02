@@ -412,6 +412,7 @@ internal sealed class WmsBrowser : UserControl
     private readonly WebView2 _correctionView=new(){Dock=DockStyle.Fill};
     private CoreWebView2Environment? _sharedEnvironment;
     private bool _correctionReady;
+    public event Action? CorrectionFinished;
     private const string CorrectionUrl="https://wms-supra.winmart.vn/sft3/app/manager/sohandover";
     private readonly LocalStore _storage;
     private readonly string _profile;
@@ -431,7 +432,16 @@ internal sealed class WmsBrowser : UserControl
         _recorder=new WmsActionRecorder(storage.Root);
         Dock=DockStyle.Fill;
         _printPage.Controls.Add(_view);
-        _correctionPage.Controls.Add(_correctionView);
+        var correctionShell=new TableLayoutPanel {Dock=DockStyle.Fill,RowCount=2,ColumnCount=1};
+        correctionShell.RowStyles.Add(new RowStyle(SizeType.Absolute,54));
+        correctionShell.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+        var correctionDone=new Button {Text="ĐÃ SỬA XONG · KIỂM TRA LẠI SO",
+            Dock=DockStyle.Fill,BackColor=Color.FromArgb(23,132,75),ForeColor=Color.White,
+            Font=new Font("Segoe UI",11,FontStyle.Bold)};
+        correctionDone.Click+=(_,_)=>CorrectionFinished?.Invoke();
+        correctionShell.Controls.Add(correctionDone,0,0);
+        correctionShell.Controls.Add(_correctionView,0,1);
+        _correctionPage.Controls.Add(correctionShell);
         _webPages.TabPages.Add(_printPage);
         Controls.Add(_webPages);
     }
