@@ -44,6 +44,7 @@ internal sealed class CartonConfirmationDialog : Form
         var correct = MakeButton("SỬA SỐ KIỆN", Color.FromArgb(196, 118, 28));
         var print = MakeButton("OK · IN TEM", Color.FromArgb(23, 132, 75));
         print.Enabled = canPrint;
+        print.Visible = canPrint; // Invalid/decimal values have no print option.
         exit.Click += (_, _) => Finish(CartonDecision.Exit);
         correct.Click += (_, _) => Finish(CartonDecision.Correct);
         print.Click += (_, _) => Finish(CartonDecision.Print);
