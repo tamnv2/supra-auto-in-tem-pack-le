@@ -98,6 +98,23 @@ internal sealed class TemChanPeek
     public string totalRaw {get;set;}="";
 }
 
+internal sealed class HandoverPeek
+{
+    public bool ok {get;set;}
+    public string reason {get;set;}="";
+    public int searchInputCount {get;set;}
+    public int searchButtonCount {get;set;}
+    public bool searchValueMatches {get;set;}
+    public int rowCount {get;set;}
+    public int rowActionCount {get;set;}
+    public int updateDialogCount {get;set;}
+    public int quantityInputCount {get;set;}
+    public int updateButtonCount {get;set;}
+    public bool quantityMatches {get;set;}
+    public int confirmDialogCount {get;set;}
+    public int confirmYesCount {get;set;}
+}
+
 internal sealed class WmsBrowser : UserControl
 {
     private const string Target="https://wms-supra.winmart.vn/sft3/app/saleorder/packing";
@@ -386,6 +403,50 @@ internal sealed class WmsBrowser : UserControl
             return false;
         }
     }
+    public async Task<HandoverPeek?> HandoverPeekAsync(string so,int quantity)
+    {
+        if(!_temChanMode || !_correctionReady || _correctionView.CoreWebView2 is null)
+            return null;
+        try
+        {
+            var core=_correctionView.CoreWebView2;
+            await core.ExecuteScriptAsync(WmsHandoverJs.Script);
+            var result=await core.ExecuteScriptAsync(
+                "window.__supraHandoverV1?.peek("+JsonSerializer.Serialize(so)+","+
+                quantity+") || {ok:false,reason:'SCRIPT_MISSING'}");
+            return JsonSerializer.Deserialize<HandoverPeek>(result);
+        }
+        catch(Exception ex)
+        {
+            _storage.TraceException("EVEN","HANDOVER_PEEK_EXCEPTION",ex);
+            return null;
+        }
+    }
+
+    public async Task<BrowserResult> HandoverActionAsync(string action,string so,int quantity)
+    {
+        if(!_temChanMode || !_correctionReady || _correctionView.CoreWebView2 is null)
+            return new(){reason="CORRECTION_BROWSER_NOT_READY"};
+        try
+        {
+            var core=_correctionView.CoreWebView2;
+            await core.ExecuteScriptAsync(WmsHandoverJs.Script);
+            var raw=await core.ExecuteScriptAsync(
+                "window.__supraHandoverV1?.perform("+
+                JsonSerializer.Serialize(action)+","+JsonSerializer.Serialize(so)+","+
+                quantity+") || {ok:false,reason:'SCRIPT_MISSING'}");
+            var parsed=JsonSerializer.Deserialize<BrowserResult>(raw) ??
+                new(){reason="INVALID_RESPONSE"};
+            _storage.Trace("EVEN","HANDOVER_"+action,parsed.ok?"DONE":"BLOCKED");
+            return parsed;
+        }
+        catch(Exception ex)
+        {
+            _storage.TraceException("EVEN","HANDOVER_ACTION_EXCEPTION",ex);
+            return new(){reason="HANDOVER_DISPATCH_UNCERTAIN"};
+        }
+    }
+
     public bool NavigateTemChan(string so)
     {
         if(!_temChanMode||!Ready||_view.CoreWebView2 is null ||
