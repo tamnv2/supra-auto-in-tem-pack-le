@@ -76,7 +76,6 @@ internal sealed class TemChanPanel : UserControl
         }
     }
     private sealed record PendingCorrection(string Before,int After,string Reason);
-    private int _browserToggleGeneration;
     private bool _uncertain;
     public bool IsBusy=>_busy;
     public bool NeedsManualReview=>_uncertain;
@@ -152,7 +151,6 @@ internal sealed class TemChanPanel : UserControl
             if(e.KeyCode==Keys.Enter) { e.SuppressKeyPress=true; await RunAsync(); }
         };
         _browserToggle.Click+=(_,_)=>{
-            ++_browserToggleGeneration;
             if(BrowserIsShown)_hideBrowser();else _showBrowser();
         };
         _exportCorrections.Click+=(_,_)=>ExportCorrections();
@@ -716,7 +714,7 @@ internal sealed class TemChanPanel : UserControl
             {
                 _uncertain=true;
                 _manual.Visible=true;
-                _showBrowser();
+                Step("Có thể mở WMS thủ công bằng nút HIỆN TRÌNH DUYỆT.");
                 Alert(printIssued
                     ? "Đã dừng. Lệnh in có thể đã gửi; kiểm tra WMS/máy in, không tự in lại."
                     : "Đã dừng khi cập nhật kiện có thể đã gửi; kiểm tra WMS trước khi xử lý SO mới.");
@@ -736,7 +734,7 @@ internal sealed class TemChanPanel : UserControl
             {
                 _uncertain=true;
                 _manual.Visible=true;
-                _showBrowser();
+                Step("Có thể mở WMS thủ công bằng nút HIỆN TRÌNH DUYỆT.");
                 Alert(e.Message+(printIssued
                     ? " Lệnh in có thể đã gửi. Kiểm tra WMS/máy in, không in lại."
                     : " Cập nhật số kiện có thể đã gửi. Kiểm tra WMS trước khi xử lý SO mới."));
@@ -748,7 +746,7 @@ internal sealed class TemChanPanel : UserControl
             _log.TraceException("EVEN","JOB_EXCEPTION",ex,_workClock.ElapsedMilliseconds);
             _uncertain=true;
             _manual.Visible=true;
-            _showBrowser();
+            Step("Có thể mở WMS thủ công bằng nút HIỆN TRÌNH DUYỆT.");
             Alert("Lỗi ngoài dự kiến. Kiểm tra trực tiếp WMS trước khi mở khóa SO.");
         }
         finally
