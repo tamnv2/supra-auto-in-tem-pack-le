@@ -7,6 +7,18 @@ const script = src.split('"""')[1];
 const form = fs.readFileSync('MainForm.cs','utf8');
 const browser = fs.readFileSync('WmsBrowser.cs','utf8');
 const panel = fs.readFileSync('TemChanPanel.cs','utf8');
+const confirmation = fs.readFileSync('CartonConfirmationDialog.cs','utf8');
+assert.match(panel, /DỪNG IN TEM/);
+assert.match(panel, /CARTON_OPERATOR_APPROVED/);
+assert.match(panel, /CARTON_RECHECK_AFTER_CORRECTION/);
+assert.match(panel, /CancellationTokenSource/);
+assert.match(panel, /ConfirmCorrectionFinished/);
+assert.match(panel, /countMatchesOneSku/);
+assert.match(browser, /OpenCorrectionAsync/);
+assert.match(browser, /_sharedEnvironment/);
+assert.match(browser, /CorrectionFinished/);
+assert.match(confirmation, /SỬA SỐ KIỆN/);
+assert.match(confirmation, /OK · IN TEM/);
 assert.ok(script && script.includes('window.__supraTemChanV1'));
 assert.match(script, /expectedStatus\s*=\s*'đã lưu trữ hàng sau đóng gói'/);
 assert.match(script, /Number\.isSafeInteger/);
@@ -42,7 +54,7 @@ assert.doesNotMatch(panel, /TryAppendHistory|HistoryRow|ExportXlsx|SaveHistory/)
 
 function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
   begin='1', end='4', prints=1, confirmButtons=1, decorative=[],
-  omitStatusCaption=false, duplicateStatusTiles=false}={}) {
+  omitStatusCaption=false, duplicateStatusTiles=false,sku='2',units='24'}={}) {
   const so='SOABC12345';
   let activeTab=false, dialogOpen=false, commandCount=0;
   const css={display:'block',visibility:'visible'};
@@ -83,7 +95,7 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
     {textContent:'Thông tin kiện hàng',parentElement:statusEl}
   ];
   const document={
-    body:{},
+    body:{innerText:'Tổng số lượng / Tổng SKU: '+units+' (unit) / '+sku+' (sku)'},
     createTreeWalker:()=>({nextNode:(()=>{let i=-1;return ()=>nodes[++i]||null;})()}),
     querySelectorAll:q=>{
       if(q==='[role="tab"],.mat-tab-label')return [tab];
@@ -113,20 +125,41 @@ function fixture({status='Đã lưu trữ hàng sau đóng gói', total='4',
   assert.equal(f.api.peek(f.so).statusValid,true);
   assert.equal(f.api.peek(f.so).statusSource,'ORDER_HEADER_TILE');
   assert.equal(f.api.peek(f.so).printCount,1);
+  assert.equal(f.api.peek(f.so).skuKnown,true);
+  assert.equal(f.api.peek(f.so).skuCount,2);
   // A closed dialog must NOT overwrite the top-level valid SO state.
   assert.equal(f.api.peek(f.so).reason,'OK');
   assert.equal(f.api.peek(f.so).dialogReason,'PRINT_DIALOG_ABSENT');
   assert.equal(f.api.perform('TAB',f.so).ok,true);
   assert.equal(f.api.perform('OPEN_PRINT',f.so).ok,true);
   assert.equal(f.api.peek(f.so).rangeValid,true);
+  assert.equal(f.api.peek(f.so).fullRange,true);
+  assert.equal(f.api.peek(f.so).finishRaw,'4');
   assert.equal(f.api.perform('PRINT_LABEL',f.so).ok,true);
   assert.equal(f.commands(),1);
   assert.equal(f.dialog(),false);
+}
+{
+  const f=fixture({sku:'1',units:'24',total:'1',begin:'1',end:'1'});
+  assert.equal(f.api.peek(f.so).skuCount,1);
+  assert.equal(f.api.perform('TAB',f.so).ok,true);
+  assert.equal(f.api.perform('OPEN_PRINT',f.so).ok,true);
+  assert.equal(f.api.peek(f.so).fullRange,true);
+  assert.equal(f.api.peek(f.so).total,1);
+}
+{
+  const f=fixture({total:'4',begin:'2',end:'4'});
+  f.api.perform('TAB',f.so);f.api.perform('OPEN_PRINT',f.so);
+  assert.equal(f.api.peek(f.so).rangeValid,true);
+  assert.equal(f.api.peek(f.so).fullRange,false);
+  assert.equal(f.api.perform('PRINT_LABEL',f.so).ok,false);
+  assert.equal(f.commands(),0);
 }
 for(const end of ['1.3','0.6','-1','0','NaN','10000']){
   const f=fixture({end});
   f.api.perform('TAB',f.so);f.api.perform('OPEN_PRINT',f.so);
   assert.equal(f.api.peek(f.so).rangeValid,false,'end='+end);
+  assert.equal(f.api.peek(f.so).finishRaw,end);
   assert.equal(f.api.perform('PRINT_LABEL',f.so).ok,false);
   assert.equal(f.commands(),0);
 }
@@ -179,4 +212,4 @@ for(const total of ['1.5','0','-2']){
   assert.equal(f.api.perform('PRINT_LABEL',f.so).ok,false);
   assert.equal(f.commands(),0);
 }
-console.log('Dual-operation checks PASS: status, exact SO, integer box range, unique print, one-shot click');
+console.log('Even carton confirmation and dual-operation checks PASS: status, exact SO, integer box range, unique print, one-shot click');
