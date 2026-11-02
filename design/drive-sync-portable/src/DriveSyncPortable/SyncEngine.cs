@@ -435,12 +435,24 @@ internal sealed class SyncEngine : IDisposable
 
         string parent = await EnsureRemoteParentAsync(relative, ct);
         var item = await _drive.UploadAsync(source, relative.Split('/').Last(), parent, remoteId, ct);
-        if (!File.Exists(source) || new FileInfo(source).Length != sizeBefore
-            || File.GetLastWriteTimeUtc(source).Ticks != ticksBefore)
-            throw new IOException("File thay đổi trong khi tải; sẽ đồng bộ phiên bản mới sau.");
+        // Commit server ID even if the source changed during upload: never create a duplicate
+        // file next time; retain the old source fingerprint so the new edit uploads again.
         _remoteFiles![relative] = item;
-        SaveRecord(relative, item, source);
-        Log("↑ Đã tải lên: " + relative);
+        bool sourceStillMatches = File.Exists(source)
+            && new FileInfo(source).Length == sizeBefore
+            && File.GetLastWriteTimeUtc(source).Ticks == ticksBefore;
+        _store.Data.Records[relative] = new SyncRecord {
+            RemoteId = item.Id,
+            RemoteVersion = item.Version,
+            LocalVersion = sizeBefore + "|" + ticksBefore
+        };
+        _store.Save();
+        if (!sourceStillMatches)
+        {
+            Interlocked.Exchange(ref _dirty, 1);
+            Log("File thay đổi trong khi tải; sẽ đồng bộ phiên bản mới: " + relative);
+        }
+        else Log("↑ Đã tải lên: " + relative);
     }
 
     private async Task DownloadFileAsync(string relative, DriveItem item, CancellationToken ct)
