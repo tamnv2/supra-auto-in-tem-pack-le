@@ -51,6 +51,9 @@ internal static class Program
                 "DriveSync Portable", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return 0;
         }
+        if (args.Any(a => string.Equals(a, "--sync-smoke", StringComparison.OrdinalIgnoreCase)))
+            return SyncSmoke.RunAsync().GetAwaiter().GetResult();
+
         Application.Run(new MainForm());
         return 0;
     }
