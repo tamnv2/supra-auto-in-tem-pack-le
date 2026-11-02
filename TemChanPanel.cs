@@ -367,6 +367,8 @@ internal sealed class TemChanPanel : UserControl
         await WaitHandoverAsync(so,quantity,
             x=>x.quantityMatches && x.updateButtonCount==1,
             "QUANTITY_READBACK",8,ct);
+        // Cập Nhật may already change WMS even before the confirmation dialog.
+        markPossiblySubmitted();
         await HandoverStepAsync("UPDATE",so,quantity,ct);
         await WaitHandoverAsync(so,quantity,
             x=>x.confirmDialogCount==1 && x.confirmYesCount==1,
@@ -488,40 +490,56 @@ internal sealed class TemChanPanel : UserControl
                 _log.Trace("EVEN","CARTON_CONFIRMATION_SHOWN",canPrint?"DONE":"BLOCKED",
                     _workClock.ElapsedMilliseconds,
                     "ONE_SKU="+(p.skuCount==1?1:0)+";RANGE_OK="+(canPrint?1:0));
-                using var prompt=new CartonConfirmationDialog(heading,countText,instructions,canPrint);
-                prompt.ShowDialog(this);
-                ct.ThrowIfCancellationRequested();
-
-                if(prompt.Decision==CartonDecision.Exit)
+                bool needRecheck=false;
+                // QUAY LẠI from the correction input returns to THIS carton notification.
+                while(true)
                 {
-                    _log.Trace("EVEN","CARTON_OPERATOR_EXIT","DONE",_workClock.ElapsedMilliseconds);
-                    _state.Text="ĐÃ THOÁT · Không gửi lệnh in";
-                    Step("Người vận hành thoát lượt SO. Không in tem.");
-                    return;
-                }
-                if(prompt.Decision==CartonDecision.Correct)
-                {
-                    _log.Trace("EVEN","CARTON_OPERATOR_CORRECT","DONE",_workClock.ElapsedMilliseconds);
-                    _state.Text="CHỜ SỬA KIỆN THỦ CÔNG · Chưa in tem";
-                    _correctionGate=new TaskCompletionSource<bool>(
-                        TaskCreationOptions.RunContinuationsAsynchronously);
-                    _correctionDone.Visible=true;
-                    if(!await _browser.OpenCorrectionAsync())
-                        throw new TemChanStop("Không mở được tab WMS sửa số kiện.");
-                    _showBrowser();
-                    Step("Đang mở sohandover. Hãy in phiếu kiểm, sửa kiện thủ công rồi chọn ĐÃ SỬA XONG.");
-                    await _correctionGate.Task.WaitAsync(ct);
+                    using var prompt=new CartonConfirmationDialog(
+                        heading,countText,instructions,canPrint);
+                    prompt.ShowDialog(this);
                     ct.ThrowIfCancellationRequested();
-                    _correctionGate=null;
-                    _correctionDone.Visible=false;
-                    _browser.FocusPrintTab();
-                    _hideBrowser();
-                    _log.Trace("EVEN","CARTON_RECHECK_AFTER_CORRECTION","WAIT",_workClock.ElapsedMilliseconds);
-                    // A full reload is mandatory; never reuse pre-correction evidence.
-                    continue;
+                    if(prompt.Decision==CartonDecision.Exit)
+                    {
+                        _log.Trace("EVEN","CARTON_OPERATOR_EXIT","DONE",
+                            _workClock.ElapsedMilliseconds);
+                        _state.Text="ĐÃ THOÁT · Không gửi lệnh in";
+                        Step("Người vận hành thoát lượt SO. Không in tem.");
+                        _so.Clear();
+                        return;
+                    }
+                    if(prompt.Decision==CartonDecision.Correct)
+                    {
+                        _log.Trace("EVEN","CARTON_OPERATOR_CORRECT","DONE",
+                            _workClock.ElapsedMilliseconds);
+                        using var correction=new CartonCorrectionDialog(countText);
+                        correction.ShowDialog(this);
+                        ct.ThrowIfCancellationRequested();
+                        if(correction.Decision==CorrectionDecision.Back)
+                        {
+                            Step("Quay lại hộp đối chiếu số kiện; chưa sửa WMS.");
+                            continue;
+                        }
+                        if(correction.Decision==CorrectionDecision.Exit)
+                        {
+                            _state.Text="ĐÃ THOÁT · Không sửa / in tem";
+                            _so.Clear();
+                            return;
+                        }
+                        await AutoCorrectCartonsAsync(so,correction.Quantity,ct,
+                            ()=>correctionMayHaveSubmitted=true);
+                        expectedAfterCorrection=correction.Quantity;
+                        _log.Trace("EVEN","CARTON_RECHECK_AFTER_CORRECTION","WAIT",
+                            _workClock.ElapsedMilliseconds);
+                        _browser.FocusPrintTab();
+                        _hideBrowser();
+                        needRecheck=true;
+                        break;
+                    }
+                    if(!canPrint)
+                        throw new TemChanStop("Số kiện/phạm vi WMS không hợp lệ. Không in.");
+                    break;
                 }
-                if(!canPrint)
-                    throw new TemChanStop("Phạm vi/số kiện WMS không hợp lệ. Không được in.");
+                if(needRecheck)continue;
 
                 // Revalidate all critical values immediately before the one-shot click.
                 ct.ThrowIfCancellationRequested();
@@ -555,12 +573,14 @@ internal sealed class TemChanPanel : UserControl
         {
             _log.Trace("EVEN","JOB_STOPPED",printIssued?"UNCERTAIN":"DONE",
                 _workClock.ElapsedMilliseconds);
-            if(printIssued)
+            if(printIssued || correctionMayHaveSubmitted)
             {
                 _uncertain=true;
                 _manual.Visible=true;
                 _showBrowser();
-                Alert("Đã dừng thao tác. Lệnh in có thể đã gửi: phải kiểm tra WMS/máy in. KHÔNG tự in lại.");
+                Alert(printIssued
+                    ? "Đã dừng. Lệnh in có thể đã gửi; kiểm tra WMS/máy in, không tự in lại."
+                    : "Đã dừng khi cập nhật kiện có thể đã gửi; kiểm tra WMS trước khi xử lý SO mới.");
             }
             else
             {
@@ -573,12 +593,14 @@ internal sealed class TemChanPanel : UserControl
             _log.TraceException("EVEN","JOB_HALTED",e,_workClock.ElapsedMilliseconds);
             _log.Trace("EVEN","PRINT_ISSUED_FLAG",printIssued?"UNCERTAIN":"BLOCKED",
                 _workClock.ElapsedMilliseconds,"VALUE="+(printIssued?1:0));
-            if(printIssued)
+            if(printIssued || correctionMayHaveSubmitted)
             {
                 _uncertain=true;
                 _manual.Visible=true;
                 _showBrowser();
-                Alert(e.Message+" Lệnh in có thể đã gửi: kiểm tra WMS/máy in, KHÔNG tự in lại.");
+                Alert(e.Message+(printIssued
+                    ? " Lệnh in có thể đã gửi. Kiểm tra WMS/máy in, không in lại."
+                    : " Cập nhật số kiện có thể đã gửi. Kiểm tra WMS trước khi xử lý SO mới."));
             }
             else Alert(e.Message);
         }
