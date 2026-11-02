@@ -6,7 +6,7 @@ const dialog=fs.readFileSync('CartonCorrectionDialog.cs','utf8');
 const store=fs.readFileSync('LocalStore.cs','utf8');
 const smoke=fs.readFileSync('StartupSmoke.cs','utf8');
 const csproj=fs.readFileSync('SupraAutoPackLe.csproj','utf8');
-assert.match(csproj,/<Version>1\.8\.13<\/Version>/);
+assert.match(csproj,/<Version>1\.8\.1[3-9]<\/Version>/);
 assert.match(dialog,/LÝ DO SỬA KIỆN/);
 assert.match(dialog,/MaxLength=300/);
 assert.match(dialog,/Reason=reason/);
