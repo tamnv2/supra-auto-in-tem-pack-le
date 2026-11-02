@@ -62,8 +62,17 @@ public sealed partial class MainForm
             }
 
             await StopSyncAsync();
+            string oldEmail = _config.Data.GoogleEmail;
             SetStatus("Đang đăng nhập Google", "Xác thực trên trình duyệt mặc định");
             await _api.SignInAsync(CancellationToken.None);
+            if (!string.Equals(oldEmail, _config.Data.GoogleEmail, StringComparison.OrdinalIgnoreCase))
+            {
+                // Never reuse a folder ID or sync checkpoint from another Google account.
+                _config.Data.RemoteFolderId = "";
+                _config.Data.RemoteFolderName = "";
+                _remotePath.Text = "Chưa chọn thư mục";
+                ResetMapping();
+            }
             _accountName.Text = _config.Data.GoogleEmail;
             _accountDesc.Text = "Google OAuth · Phiên đăng nhập được mã hóa trong Windows";
             _login.Text = "Đổi tài khoản";
