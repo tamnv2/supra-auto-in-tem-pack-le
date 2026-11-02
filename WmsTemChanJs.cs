@@ -90,6 +90,34 @@ internal static class WmsTemChanJs
         return values.length===1 ? {known:true,valid:false} :
           {known:false,valid:false};
       };
+      // The SO header contains the verified aggregate: e.g. "24 (unit) / 1 (sku)".
+      // Never infer the SKU count from the package table or an unrelated label.
+      const skuEvidence = () => {
+        const raw = compact(document.body?.innerText || document.body?.textContent || '');
+        const re = /Tổng số lượng\s*\/\s*Tổng SKU\s*:\s*(\d+)\s*\(\s*unit\s*\)\s*\/\s*(\d+)\s*\(\s*sku\s*\)/ig;
+        const matches=[...raw.matchAll(re)];
+        if(matches.length===1) {
+          const units=Number(matches[0][1]), sku=Number(matches[0][2]);
+          if(Number.isSafeInteger(sku)&&sku>0&&Number.isSafeInteger(units)&&units>0)
+            return {skuKnown:true,skuCount:sku,unitCount:units};
+        }
+        // Angular can split the heading and count across separate grid tiles.
+        const tiles=[...document.querySelectorAll('mat-grid-list mat-grid-tile')]
+          .filter(el=>visible(el) && !el.closest('mat-dialog-container,[role="dialog"]'));
+        const indices=tiles.map((tile,i)=>norm(tile.innerText||tile.textContent).includes('tổng số lượng / tổng sku')?i:-1)
+          .filter(i=>i>=0);
+        if(indices.length===1) {
+          const near=compact(tiles.slice(indices[0],indices[0]+4)
+            .map(el=>el.innerText||el.textContent).join(' '));
+          const m=near.match(/(\d+)\s*\(\s*unit\s*\)\s*\/\s*(\d+)\s*\(\s*sku\s*\)/i);
+          if(m) {
+            const units=Number(m[1]),sku=Number(m[2]);
+            if(Number.isSafeInteger(units)&&units>0&&Number.isSafeInteger(sku)&&sku>0)
+              return {skuKnown:true,skuCount:sku,unitCount:units};
+          }
+        }
+        return {skuKnown:false,skuCount:0,unitCount:0};
+      };
       const tabs = () => [...document.querySelectorAll('[role="tab"],.mat-tab-label')]
         .filter(el => visible(el) && norm(el.innerText) === 'thông tin kiện hàng');
       const selectedTab = () => tabs().length === 1 &&
@@ -114,6 +142,10 @@ internal static class WmsTemChanJs
           .filter(el=>visible(el) && norm(el.innerText).includes('tùy chọn in nhãn'));
         return unique(roles);
       };
+      const numericDisplay = value => {
+        const raw=String(value??'').trim();
+        return /^[0-9.,+\\-]{1,20}$/.test(raw) ? raw : 'KHÔNG ĐỌC ĐƯỢC';
+      };
       const modalInfo = (so) => {
         const dlg = modal();
         if (!dlg) return {dialogOpen:false, rangeValid:false, dialogReason:'PRINT_DIALOG_ABSENT'};
@@ -134,7 +166,9 @@ internal static class WmsTemChanJs
                   !start?'START_NOT_INTEGER':!end?'END_NOT_INTEGER':
                   start>end || end>total?'RANGE_OUT_OF_BOUNDS':'OK',
           // Only aggregate counts, never SO/customer or credentials.
-          total:total||0, begin:start||0, finish:end||0
+          total:total||0, begin:start||0, finish:end||0,
+          totalRaw:numericDisplay(m && m[1]),finishRaw:numericDisplay(ends[0].value),
+          fullRange:!!valid && start===1 && end===total
         };
       };
       const detail = so => {
@@ -143,10 +177,12 @@ internal static class WmsTemChanJs
         const known = evidence.known;
         const statusValid = evidence.valid;
         const hasTab = tabs().length === 1;
+        const sku=skuEvidence();
         return {ok:true,reason:!known?'STATUS_NOT_LOCATED':!statusValid?'STATUS_NOT_READY':
               !hasTab?'PACKAGE_TAB_AMBIGUOUS':'OK',
           statusKnown:known,statusValid,statusSource:evidence.source || (known?'LABEL':'UNKNOWN'),tabReady:hasTab,
           tabSelected:selectedTab(),printCount:printButtons().length,
+          ...sku,
           ...modalInfo(so)};
       };
       const action = (name,so) => {
@@ -168,7 +204,7 @@ internal static class WmsTemChanJs
           return {ok:true,reason:'PRINT_DIALOG_REQUESTED'};
         }
         if (name === 'PRINT_LABEL') {
-          if (!p.dialogOpen || !p.rangeValid)
+          if (!p.dialogOpen || !p.rangeValid || !p.fullRange)
             return {ok:false,reason:p.dialogReason || 'INVALID_RANGE'};
           const dlg = modal();
           if (!dlg) return {ok:false,reason:'PRINT_DIALOG_ABSENT'};
