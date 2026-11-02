@@ -285,6 +285,11 @@ internal sealed class WmsBrowser : UserControl
         _lastTemChanRouteAt=DateTime.MinValue;
         _startupRouting=!temChan;
         _startupRedirects=0;
+        _printPage.Text=temChan?"WMS · IN TEM":"WMS · ĐÓNG GÓI";
+        // Keep the existing loose-packing browser area effectively unchanged.
+        _webPages.Appearance=temChan?TabAppearance.Normal:TabAppearance.FlatButtons;
+        _webPages.SizeMode=temChan?TabSizeMode.Normal:TabSizeMode.Fixed;
+        _webPages.ItemSize=temChan?new Size(135,28):new Size(0,1);
         if(temChan)
         {
             if(!_webPages.TabPages.Contains(_correctionPage))
@@ -312,6 +317,10 @@ internal sealed class WmsBrowser : UserControl
             return false;
         try
         {
+            if(!_webPages.TabPages.Contains(_correctionPage))
+                _webPages.TabPages.Add(_correctionPage);
+            // A selected tab guarantees the embedded browser has a parent HWND.
+            _webPages.SelectedTab=_correctionPage;
             if(!_correctionReady)
             {
                 var options=_sharedEnvironment.CreateCoreWebView2ControllerOptions();
