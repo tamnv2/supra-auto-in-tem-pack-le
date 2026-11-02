@@ -6,8 +6,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>WmsPackingAssistant</AssemblyName>
+    <ApplicationIcon>assets\WmsPackingAssistant.ico</ApplicationIcon>
     <RootNamespace>SupraAutoPackLe</RootNamespace>
-    <Version>1.8.13</Version>
+    <Version>1.8.14</Version>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <AssemblyTitle>WMS Packing &amp; Productivity Assistant</AssemblyTitle>
@@ -20,4 +21,8 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3351.48"/>
     <PackageReference Include="ClosedXML" Version="0.104.2"/>
   </ItemGroup>
+  <!-- Generate the same icon on developer workstations and Windows CI. -->
+  <Target Name="BuildWmsAssistantIcon" BeforeTargets="PrepareForBuild" Condition="'$(OS)'=='Windows_NT'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\tools\Build-WmsIcon.ps1&quot; -Output &quot;$(MSBuildProjectDirectory)\assets\WmsPackingAssistant.ico&quot;" />
+  </Target>
 </Project>
