@@ -38,6 +38,12 @@ jobs:
           $exe = (Resolve-Path output/app/DriveSyncPortable.exe).Path
           $p = Start-Process -FilePath $exe -ArgumentList '--ui-smoke' -PassThru -Wait
           if ($p.ExitCode -ne 0) { throw "UI_SMOKE_FAILED_$($p.ExitCode)" }
+      - name: Offline two-way sync integration smoke (no Google data)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path output/app/DriveSyncPortable.exe).Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--sync-smoke' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "SYNC_SMOKE_FAILED_$($p.ExitCode)" }
       - name: Package EXE and SHA256
         shell: pwsh
         run: |
