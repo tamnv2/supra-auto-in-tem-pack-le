@@ -26,6 +26,14 @@ internal sealed class TemChanPanel : UserControl
     private readonly Button _supraReady = new() { Text="SUPRA SẴN SÀNG",Height=48,
         Dock=DockStyle.Fill,BackColor=Color.FromArgb(26,120,77),
         ForeColor=Color.White,Font=new Font("Segoe UI",11,FontStyle.Bold) };
+    private readonly Button _stopPrint = new() { Text="DỪNG IN TEM",Height=46,
+        Dock=DockStyle.Fill,BackColor=Color.FromArgb(177,49,49),ForeColor=Color.White,
+        Font=new Font("Segoe UI",11,FontStyle.Bold) };
+    private readonly Button _correctionDone = new() { Text="ĐÃ SỬA XONG · KIỂM TRA LẠI",Height=46,
+        Dock=DockStyle.Fill,Visible=false,BackColor=Color.FromArgb(23,132,75),
+        ForeColor=Color.White,Font=new Font("Segoe UI",10,FontStyle.Bold) };
+    private CancellationTokenSource? _printCancel;
+    private TaskCompletionSource<bool>? _correctionGate;
     private readonly Label _state = new() { Text="SẴN SÀNG · Nhập mã SO và nhấn Enter",
         Dock=DockStyle.Fill,Font=new Font("Segoe UI",12,FontStyle.Bold),
         TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true };
@@ -76,7 +84,7 @@ internal sealed class TemChanPanel : UserControl
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,112));
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,68));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,58));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         shell.Controls.Add(new Label { Dock=DockStyle.Fill,
             Text="IN TEM CHẴN | Nhập SO để mở trực tiếp đơn hàng",
@@ -96,13 +104,18 @@ internal sealed class TemChanPanel : UserControl
         row.Controls.Add(hint,1,1);
         shell.Controls.Add(row,0,1);
         shell.Controls.Add(_state,0,2);
-        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3,RowCount=1 };
+        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3,RowCount=2 };
         commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,40));
         commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
         commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
+        commands.RowStyles.Add(new RowStyle(SizeType.Percent,50));
+        commands.RowStyles.Add(new RowStyle(SizeType.Percent,50));
         commands.Controls.Add(_browserToggle,0,0);
         commands.Controls.Add(_supraReady,1,0);
         commands.Controls.Add(_manual,2,0);
+        commands.Controls.Add(_stopPrint,0,1);
+        commands.Controls.Add(_correctionDone,1,1);
+        commands.SetColumnSpan(_correctionDone,2);
         shell.Controls.Add(commands,0,3);
         var wrap=new Panel { Dock=DockStyle.Fill,Padding=new Padding(14),BackColor=Color.White };
         wrap.Controls.Add(_steps);
@@ -115,6 +128,8 @@ internal sealed class TemChanPanel : UserControl
             if(e.KeyCode==Keys.Enter) { e.SuppressKeyPress=true; await RunAsync(); }
         };
         _browserToggle.Click+=(_,_)=>{if(BrowserIsShown)_hideBrowser();else _showBrowser();};
+        _stopPrint.Click+=(_,_)=>RequestStop();
+        _correctionDone.Click+=(_,_)=>ConfirmCorrectionFinished();
         _supraReady.Click+=(_,_)=> {
             if(IsDisposed||_busy||_uncertain||_printerReady)return;
             if(!_browser.Ready)
@@ -173,6 +188,30 @@ internal sealed class TemChanPanel : UserControl
         FocusSo();
     }
 
+    public void ConfirmCorrectionFinished()
+    {
+        if(!_busy || _correctionGate is null || _correctionGate.Task.IsCompleted)return;
+        _log.Trace("EVEN","MANUAL_CORRECTION_ACKNOWLEDGED","DONE",_workClock.ElapsedMilliseconds);
+        _correctionGate.TrySetResult(true);
+    }
+
+    private void RequestStop()
+    {
+        if(!_busy)
+        {
+            Step("Không có lượt in tem tự động đang chạy.");
+            return;
+        }
+        if(MessageBox.Show(this,
+            "Dừng thao tác in tem đang chạy? Log và nghiệp vụ khác vẫn tiếp tục. "+
+            "Nếu lệnh in đã được gửi, phải kiểm tra WMS và máy in trước khi xử lý tiếp.",
+            "DỪNG IN TEM",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)
+            return;
+        _log.Trace("EVEN","STOP_REQUESTED","DONE",_workClock.ElapsedMilliseconds);
+        _printCancel?.Cancel();
+        _correctionGate?.TrySetResult(false);
+    }
+
     public void FocusSo()
     {
         // Only focus synchronously when the SO input can accept focus.
@@ -226,13 +265,14 @@ internal sealed class TemChanPanel : UserControl
         MessageBox.Show(this,text,"IN TEM CHẴN · Cần xác nhận",MessageBoxButtons.OK,MessageBoxIcon.Warning);
     }
     private async Task<TemChanPeek> WaitAsync(string so,Func<TemChanPeek,bool> predicate,
-        string stage,int seconds)
+        string stage,int seconds,CancellationToken cancellationToken=default)
     {
         var watch=Stopwatch.StartNew();int stable=0;TemChanPeek? last=null;
         var code=WaitCode(stage);
         _log.Trace("EVEN","WAIT_"+code,"WAIT",_workClock.ElapsedMilliseconds);
         while(watch.Elapsed<TimeSpan.FromSeconds(seconds))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             last=await _browser.TemChanPeekAsync(so);
             if(last?.ok==true && predicate(last))
             {
@@ -244,7 +284,7 @@ internal sealed class TemChanPanel : UserControl
                 }
             }
             else stable=0;
-            await Task.Delay(360);
+            await Task.Delay(360,cancellationToken);
         }
         _log.Trace("EVEN","WAIT_"+code,"TIMEOUT",watch.ElapsedMilliseconds,
             SafeUiCounts(last));
@@ -253,12 +293,14 @@ internal sealed class TemChanPanel : UserControl
             " (nút in="+(last?.printCount??0)+", tab="+(last?.tabSelected==true?"đã chọn":"chưa chọn")+
             ", nguồn trạng thái="+(last?.statusSource??"UNKNOWN")+").");
     }
-    private async Task ExecuteAsync(string action,string so)
+    private async Task ExecuteAsync(string action,string so,CancellationToken cancellationToken=default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         _log.Trace("EVEN","ACTION_"+action,"WAIT",_workClock.ElapsedMilliseconds);
         var result=await _browser.TemChanPerformAsync(action,so);
         _log.Trace("EVEN","ACTION_"+action,result.ok?"DONE":"BLOCKED",
             _workClock.ElapsedMilliseconds);
+        cancellationToken.ThrowIfCancellationRequested();
         if(!result.ok)throw new TemChanStop("Không xác nhận được thao tác "+action+
             " ("+result.reason+"). Không tự click lại.");
     }
