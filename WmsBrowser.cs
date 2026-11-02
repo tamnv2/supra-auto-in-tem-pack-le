@@ -328,7 +328,14 @@ internal sealed class WmsBrowser : UserControl
                 await _correctionView.EnsureCoreWebView2Async(_sharedEnvironment,options);
                 var core=_correctionView.CoreWebView2;
                 core.Settings.AreDevToolsEnabled=false;
+                core.Settings.IsWebMessageEnabled=true;
                 core.Settings.AreDefaultContextMenusEnabled=false;
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsRecorderJs.Script);
+                core.WebMessageReceived+=(_,e)=>{
+                    if(!_recorder.Active)return;
+                    try{_recorder.Accept(e.TryGetWebMessageAsString(),e.Source);}
+                    catch{_storage.Trace("RECORDER","CORRECTION_INVALID_MESSAGE","ERROR");}
+                };
                 core.Settings.IsPasswordAutosaveEnabled=true;
                 core.NavigationStarting+=(_,e)=>{
                     if(!AllowedUrl(e.Uri))
@@ -337,9 +344,22 @@ internal sealed class WmsBrowser : UserControl
                         _storage.Trace("WEB","CORRECTION_URL_BLOCKED","BLOCKED");
                     }
                 };
-                core.NavigationCompleted+=(_,e)=>{
+                core.NavigationCompleted+=async (_,e)=>{
                     _storage.Trace("EVEN",e.IsSuccess?"CORRECTION_PAGE_LOADED":"CORRECTION_PAGE_FAILED",
                         e.IsSuccess?"DONE":"ERROR");
+                    if(_recorder.Active)
+                    {
+                        _recorder.Navigation(core.Source,e.IsSuccess?"LOADED":"ERROR");
+                        if(e.IsSuccess && WmsActionRecorder.AllowedSource(core.Source))
+                        {
+                            try
+                            {
+                                await core.ExecuteScriptAsync(WmsRecorderJs.Script);
+                                await core.ExecuteScriptAsync("window.__supraActionsV17?.setActive(true)");
+                            }
+                            catch{_storage.Trace("RECORDER","CORRECTION_REATTACH_FAILED","ERROR");}
+                        }
+                    }
                     if(!e.IsSuccess)return;
                     if(Uri.TryCreate(core.Source,UriKind.Absolute,out var uri) &&
                        (uri.Host.Equals("auth-supra.winmart.vn",StringComparison.OrdinalIgnoreCase) ||
@@ -557,7 +577,11 @@ internal sealed class WmsBrowser : UserControl
     {
         if(!Ready||_view.CoreWebView2==null)
             throw new InvalidOperationException("Trình duyệt WMS chưa sẵn sàng.");
-        var core=_view.CoreWebView2;
+        // Record the browser tab the operator is actually manipulating.
+        var core=_webPages.SelectedTab==_correctionPage && _correctionReady
+            ? _correctionView.CoreWebView2 : _view.CoreWebView2;
+        if(core is null)
+            throw new InvalidOperationException("Tab WMS chưa sẵn sàng.");
         if(!WmsActionRecorder.AllowedSource(core.Source))
             throw new InvalidOperationException("Đăng nhập WMS trước khi bật ghi thao tác.");
         await _recorder.StartAsync(core.Source);
@@ -581,9 +605,11 @@ internal sealed class WmsBrowser : UserControl
     {
         if(!_recorder.Active)
             throw new InvalidOperationException("Chưa bắt đầu ghi thao tác.");
-        var core=_view.CoreWebView2;
-        if(core is not null)
+        var cores=new[] { _view.CoreWebView2,
+            _correctionReady?_correctionView.CoreWebView2:null };
+        foreach(var core in cores)
         {
+            if(core is null || !WmsActionRecorder.AllowedSource(core.Source))continue;
             try
             {
                 await core.ExecuteScriptAsync("window.__supraActionsV17?.snapshot('Finish recording')");
