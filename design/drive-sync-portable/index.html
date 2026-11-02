@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DriveSync Portable • Bản xem trước giao diện</title>
+<style>
+:root{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;color:#182334;background:#eef2f7}
+*{box-sizing:border-box}body{margin:0;min-height:100vh}.topline{height:6px;background:linear-gradient(90deg,#4385ef 0 34%,#23aa73 34% 68%,#f1b943 68%)}
+.screen{max-width:950px;margin:30px auto;padding:0 22px 32px}
+.window{border-radius:18px;overflow:hidden;border:1px solid #dce4ed;background:#fff;box-shadow:0 22px 65px #213a581a}
+.titlebar{height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;border-bottom:1px solid #e8edf2}
+.brand{display:flex;align-items:center;gap:13px}.logo{height:36px;width:36px;display:grid;place-items:center;border-radius:11px;background:#e8f1ff;color:#3274d6;font-weight:850;font-size:21px}
+.name{font-size:18px;font-weight:750;letter-spacing:-.5px}.subtitle{font-size:11px;color:#738196;margin-top:2px}
+.header-actions{display:flex;align-items:center;gap:12px}.trial{font-size:11px;letter-spacing:.2px;padding:7px 10px;border-radius:100px;color:#7b5b16;background:#fff6d8;border:1px solid #f2e0a5}
+.traffic{color:#b0bac8;letter-spacing:4px;font-size:13px}
+.content{padding:26px;display:grid;gap:20px}.hero{padding:22px 24px;display:flex;justify-content:space-between;align-items:center;gap:15px;border-radius:14px;background:linear-gradient(105deg,#eef8f5,#edf4ff);border:1px solid #d7ebe6}
+.statusline{display:flex;align-items:center;gap:11px}.statusicon{display:grid;place-items:center;width:40px;height:40px;background:#d8eee5;border-radius:13px;color:#168354;font-size:23px;font-weight:800}.statusicon.paused{color:#aa6611;background:#fff0d9}
+.statusmain{font-size:18px;font-weight:760}.muted{color:#758195;font-size:12px;line-height:1.5;margin-top:4px}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:10px 15px;font-size:12px;font-weight:690;transition:.18s}
+button:focus-visible,input:focus-visible{outline:3px solid #7ab2ff;outline-offset:2px}
+.primary{background:#2e74dc;color:white}.primary:hover{background:#195ec2}
+.secondary{background:white;color:#2d4868;border:1px solid #dbe3ec}.secondary:hover{background:#f3f7fb}
+.blue{background:#e9f1ff;color:#2368c9}.section{font-size:13px;font-weight:760;margin-bottom:12px}
+.card{border:1px solid #e2e8f0;border-radius:13px;padding:17px 18px;background:#fff}
+.account{display:flex;align-items:center;justify-content:space-between;gap:12px}.identity{display:flex;align-items:center;gap:12px}
+.avatar{display:grid;place-items:center;border-radius:100%;height:38px;width:38px;color:white;font-weight:750;background:linear-gradient(145deg,#457cdb,#38ae80)}
+.value{font-size:13px;font-weight:700}.smaller{font-size:11px;color:#738196;margin-top:4px}
+.section-title{font-size:13px;font-weight:760;margin:0 0 14px}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.path{border:1px solid #e0e8f0;border-radius:12px;padding:16px;min-width:0}
+.pathhead{display:flex;align-items:center;gap:9px;color:#667789;font-size:12px}.pathname{padding:13px 0;font-size:13px;font-weight:680;overflow-wrap:anywhere;min-height:50px}.hint{font-size:11px;color:#8b98aa}
+.path button{width:100%}.arrows{display:flex;justify-content:center;align-items:center;color:#3181c6;font-size:13px;font-weight:650;padding:2px}
+.bottomgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.setting{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:8px 0}
+.switch{width:46px;height:26px;border-radius:20px;background:#cbd5e1;display:inline-flex;align-items:center;padding:3px;position:relative;cursor:pointer}
+.switch.on{background:#2f78e0}.knob{background:white;box-shadow:0 1px 4px #0002;width:20px;height:20px;border-radius:50%;transition:transform .2s}.switch.on .knob{transform:translateX(20px)}
+.activity{padding:0;margin:0;list-style:none}.activity li{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f1f4f7;padding:10px 0;gap:12px}.activity li:first-child{border:0}
+.action{font-size:12px;color:#3c4e64}.time{font-size:10px;color:#8c9cac;flex:none}
+.footer{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:11px;color:#8390a0;border-top:1px solid #ecf0f5;padding-top:18px}
+.note{margin:18px 2px;color:#69798c;font-size:12px;line-height:1.65}.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#223850;color:white;padding:12px 18px;border-radius:10px;font-size:12px;box-shadow:0 8px 35px #0003;max-width:95%;display:none}
+@media(max-width:660px){.screen{margin:8px auto;padding:0 10px}.titlebar{padding:0 15px}.content{padding:15px}.hero{flex-direction:column;align-items:stretch}.two,.bottomgrid{grid-template-columns:1fr}.trial{display:none}.footer{flex-wrap:wrap}}
+</style>
+</head>
+<body><div class="topline"></div><main class="screen">
+<div class="window">
+<header class="titlebar"><div class="brand"><div class="logo">↻</div><div><div class="name">DriveSync <span style="color:#357bd7">Portable</span></div><div class="subtitle">Đồng bộ Google Drive · Windows</div></div></div><div class="header-actions"><div class="trial">BẢN MÔ PHỎNG · CHƯA ĐỒNG BỘ THẬT</div><div class="traffic">● ● ●</div></div></header>
+<div class="content">
+<div class="hero"><div class="statusline"><div id="statusIcon" class="statusicon">✓</div><div><div id="statusMain" class="statusmain">Đã đồng bộ (mô phỏng)</div><div id="statusDesc" class="muted">Thay đổi file sẽ tự đồng bộ · Không có tệp đang chờ</div></div></div><button id="pauseButton" class="secondary">⏸ Tạm dừng</button></div>
+<section class="card"><div class="section-title">Tài khoản Google</div><div class="account"><div class="identity"><div class="avatar">G</div><div><div class="value" id="accountName">Gmail cá nhân (mẫu)</div><div class="smaller">demo@gmail.com · OAuth qua trình duyệt hệ thống</div></div></div><button class="blue" id="googleButton">Đăng nhập Google</button></div></section>
+<section><div class="section-title">Thư mục đồng bộ hai chiều</div><div class="two"><div class="path"><div class="pathhead">▣ &nbsp; TRÊN LAPTOP</div><div class="pathname" id="localPath">Documents\DriveSync</div><button id="localButton" class="secondary">Chọn thư mục trên máy</button></div><div class="path"><div class="pathhead">☁ &nbsp; TRÊN GOOGLE DRIVE</div><div class="pathname" id="remotePath">My Drive / DriveSync</div><button id="remoteButton" class="secondary">Chọn thư mục trên Drive</button></div></div><div class="arrows">⇆ &nbsp; Lưu file trên máy hoặc sửa trên Drive đều đồng bộ</div></section>
+<div class="bottomgrid"><section class="card"><div class="section-title">Thiết lập nhanh</div><div class="setting"><div><div class="value">Tự khởi động cùng Windows</div><div class="smaller">Dùng quyền người dùng hiện tại</div></div><button id="autoStart" class="switch on" aria-label="Bật tắt tự khởi động" aria-pressed="true"><span class="knob"></span></button></div><div class="setting"><div><div class="value">Chạy ngầm trên taskbar</div><div class="smaller">Đóng cửa sổ, ứng dụng vẫn đồng bộ</div></div><button id="runBackground" class="switch on" aria-label="Bật tắt chạy ngầm" aria-pressed="true"><span class="knob"></span></button></div><div style="padding-top:12px;display:flex;gap:8px"><button id="backgroundButton" class="primary" style="flex:1">Chạy ngầm</button><button id="openButton" class="secondary">Mở thư mục</button></div></section>
+<section class="card"><div class="section-title">Hoạt động gần đây (dữ liệu mẫu)</div><ul class="activity"><li><span class="action">↑ BaoCao.xlsx · Đã tải lên</span><span class="time">09:42</span></li><li><span class="action">↓ KeHoach.pdf · Đã tải về</span><span class="time">09:39</span></li><li><span class="action">✓ Không còn file đang chờ</span><span class="time">09:42</span></li></ul><button id="detailsButton" class="secondary" style="margin-top:8px">Xem nhật ký</button></section></div>
+<div class="footer"><span>🔒 Không lưu mật khẩu Google trong ứng dụng</span><span id="footerStatus">Mẫu trải nghiệm · Chưa kết nối dịch vụ</span></div>
+</div></div>
+<p class="note"><strong>Lưu ý:</strong> Đây chỉ là bản xem trước UI để duyệt thiết kế. Các nút minh họa trạng thái; không đăng nhập Gmail, không chọn thư mục thật, không tải lên hay xóa file. Phiên bản EXE cần triển khai OAuth, mã hóa token, xử lý xung đột và xác minh đồng bộ riêng.</p>
+</main>
+<div id="toast" class="toast" role="status"></div>
+<script>
+(function(){
+const $=id=>document.getElementById(id);let paused=false;let toastTimer;
+function message(s){const el=$('toast');el.textContent=s;el.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.style.display='none',3800)}
+$('pauseButton').addEventListener('click',()=>{paused=!paused;$('statusIcon').classList.toggle('paused',paused);$('statusIcon').textContent=paused?'Ⅱ':'✓';$('statusMain').textContent=paused?'Đã tạm dừng (mô phỏng)':'Đã đồng bộ (mô phỏng)';$('statusDesc').textContent=paused?'Tệp đang thay đổi sẽ chờ đến khi tiếp tục':'Thay đổi file sẽ tự đồng bộ · Không có tệp đang chờ';$('pauseButton').textContent=paused?'▶ Tiếp tục':'⏸ Tạm dừng';message('Chỉ đang đổi trạng thái trên bản mô phỏng.')});
+for(const id of ['autoStart','runBackground']){$(id).addEventListener('click',()=>{const b=$(id);b.classList.toggle('on');b.setAttribute('aria-pressed',String(b.classList.contains('on')));message('Đã đổi tùy chọn minh họa. Chưa tác động tới Windows.')})}
+$('googleButton').addEventListener('click',()=>message('Bản xem trước: đăng nhập OAuth thật sẽ mở trình duyệt hệ thống trong EXE.'));
+$('localButton').addEventListener('click',()=>message('EXE thật sẽ mở hộp chọn thư mục Windows.'));
+$('remoteButton').addEventListener('click',()=>message('EXE thật sẽ duyệt cây thư mục Google Drive qua API.'));
+$('backgroundButton').addEventListener('click',()=>message('EXE thật sẽ thu nhỏ vào khay hệ thống và tiếp tục đồng bộ.'));
+$('openButton').addEventListener('click',()=>message('EXE thật sẽ mở thư mục đã chọn trong File Explorer.'));
+$('detailsButton').addEventListener('click',()=>message('EXE thật sẽ hiển thị nhật ký và lỗi, không ghi token hoặc nội dung tài liệu.'));
+})();
+</script></body></html>
