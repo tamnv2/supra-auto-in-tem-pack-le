@@ -340,6 +340,9 @@ internal sealed class WmsBrowser : UserControl
             _webPages.SelectedTab=_correctionPage;
             if(!_correctionReady)
             {
+                // Secondary browser must initialize even if outer WMS tab is hidden.
+                // Force a native HWND without activating or revealing the top-level tab.
+                _ = _correctionView.Handle;
                 var options=_sharedEnvironment.CreateCoreWebView2ControllerOptions();
                 options.IsInPrivateModeEnabled=false;
                 await _correctionView.EnsureCoreWebView2Async(_sharedEnvironment,options);
