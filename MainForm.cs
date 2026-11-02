@@ -109,7 +109,7 @@ public sealed class MainForm : Form
             UpdateControls();
         };
         // Desktop EXE icon is embedded during build; keep taskbar/titlebar consistent.
-        try { Icon=Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+        try { Icon=System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
         catch { /* Windows will display the EXE resource icon when available. */ }
         ShowIcon=true;
         ShowInTaskbar=true;
