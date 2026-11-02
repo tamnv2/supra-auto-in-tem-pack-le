@@ -1,61 +1,61 @@
-# DriveSync Portable — giao diện để duyệt
+# DriveSync Portable v0.2 — Google Drive đồng bộ hai chiều (Beta)
 
-**Trạng thái:** Bản mô phỏng HTML, chưa đăng nhập Google, chưa đồng bộ file, chưa có ứng dụng EXE thật.
+**Đây là ứng dụng Windows WinForms có engine Google Drive thực**, không phải HTML mock. Ở thời điểm phát hành Beta, CI Windows xác minh build và UI smoke, còn kiểm thử OAuth/đồng bộ tài khoản Google thật **bắt buộc trên máy người dùng** để kết luận Production PASS.
 
-## Mục đích
-Ứng dụng Windows riêng biệt để đồng bộ một thư mục local ↔ một thư mục Google Drive cá nhân, dùng tài khoản Windows thường, không cài driver hay đòi Admin. Không sửa nghiệp vụ in tem hoặc dùng tài khoản/credential WMS. Tên repo hiện tại chỉ là nơi tham khảo công nghệ C#/.NET 8 WinForms và lưu bản duyệt.
+## Tải và chạy
+1. Vào GitHub Actions của nhánh `design/drive-sync-portable-ui`, chọn workflow **Build DriveSync Portable Beta** có kết quả SUCCESS.
+2. Tải artifact `DriveSyncPortable-beta-win-x64`, giải nén; nếu bên trong còn ZIP thì giải nén lần nữa.
+3. Chạy trực tiếp `DriveSyncPortable.exe` trên Windows x64. Ứng dụng là .NET 8 single-file self-contained, manifest asInvoker (không tự xin Admin).
+4. Ứng dụng chỉ chạy được nếu chính sách doanh nghiệp cho phép thực thi và cho phép tải dữ liệu lên Google Drive cá nhân. Không có bypass bảo mật.
 
-## Hành trình tối giản
-1. Mở EXE, bấm Đăng nhập Google → mở trang OAuth chính thức trên trình duyệt mặc định, không yêu cầu nhập mật khẩu vào EXE.
-2. Chọn thư mục trên laptop và thư mục tương ứng trên Google Drive, xem trước trước khi đồng bộ lần đầu.
-3. Bật Tự khởi động cùng Windows (chỉ HKCU Run nếu được phép).
-4. Bấm Chạy ngầm → thu nhỏ vào system tray; biểu tượng tray có Mở, Tạm dừng, Tiếp tục, Thoát.
-5. File local thay đổi: tự upload sau khi file ghi xong; file trên Drive thay đổi: tự download trong chu kỳ kiểm tra thay đổi.
-6. Trạng thái và lịch sử ngắn gọn; không có màn hình setup kỹ thuật dài dòng.
+## Đăng nhập Google — cấu hình bắt buộc một lần
+Google yêu cầu OAuth Desktop Client ID riêng (Rclone shared ID không còn phù hợp dùng lâu dài). DriveSync **không lưu sẵn OAuth ID của người khác**.
 
-## Đồng bộ
-- Local: FileSystemWatcher + debounce/check file ổn định + nhật ký thay đổi bền vững + đối soát sau khởi động để không bỏ sót thông báo.
-- Drive: sử dụng changes.getStartPageToken / changes.list theo page token, không quét toàn bộ My Drive liên tục; mặc định kiểm tra 60 giây/lần (có thể điều chỉnh sau đo thực tế). Remote không thể hoàn toàn miễn request.
-- Các request đăng nhập, upload, download, kiểm tra changes và refresh token vẫn là điều kiện bắt buộc của đồng bộ; không cần thuê server trung gian.
-- Đồng bộ hai chiều không có nghĩa ghi đè tùy tiện: sửa cùng file ở hai nơi → giữ cả hai bản để người dùng xử lý.
-- Cấp quyền xóa hai chiều chỉ khi người dùng chấp thuận rõ; mặc định dùng thùng rác/bản sao khôi phục để tránh xóa mất dữ liệu.
-- Không xóa hàng loạt khi thư mục local tạm mất kết nối hoặc khi Drive API trả lỗi.
-- Bỏ qua file tạm của Office như ~$ và chỉ upload khi tệp đã ghi ổn định.
-- Google Docs/Sheets/Slides trực tuyến không phải XLSX/DOCX gốc: bản đầu sẽ tạo shortcut tới tài liệu Google hoặc cho xuất định dạng, không hứa đồng bộ chỉnh sửa hai chiều của Google-native files như Office files.
+1. Đăng nhập Gmail cá nhân tại https://console.cloud.google.com; tạo một project mới.
+2. Enable **Google Drive API**.
+3. Google Auth Platform: tạo OAuth consent screen, Audience External, thêm tài khoản Gmail làm Test User nếu đang Testing; dùng phạm vi Drive phù hợp.
+4. Tạo OAuth Client loại **Desktop app** tại https://console.cloud.google.com/auth/clients; tải file JSON.
+5. Trong EXE: **Đăng nhập Google** → dán nội dung OAuth Desktop JSON (không dán service account) → Lưu & tiếp tục → trình duyệt Google mở ra.
+6. Xác nhận quyền trên trang Google. Ứng dụng không thu thập mật khẩu. Để thay OAuth Client, giữ **Shift** khi bấm **Đổi tài khoản**.
 
-## Bảo mật
-- Dùng OAuth Desktop + PKCE, trình duyệt hệ thống, không yêu cầu Google password và không tự đọc cookies.
-- Cần app maintainer thiết lập OAuth Client ID riêng; Rclone shared client ID bị loại dần trong 2026.
-- Google Drive full-scope là quyền hạn chế; chỉ yêu cầu phạm vi thật sự cần, giải thích trước khi consent. Ứng dụng cá nhân có thể gặp cảnh báo app chưa xác minh; không bỏ qua chính sách Google.
-- Token lưu mã hóa theo Windows user bằng DPAPI/Windows Credential Manager; không để plaintext trong repo, file cấu hình, log.
-- Không ghi token, mật khẩu, nội dung file, dữ liệu riêng tư vào nhật ký; không tự gửi log.
-- Máy có chính sách cấm EXE hoặc cấm đưa dữ liệu công ty vào Drive cá nhân thì không tự vượt qua hạn chế, cần tuân thủ quy định.
+**Lưu ý:** Testing có thể khiến refresh token hết hạn sau 7 ngày. Thiết lập Production cho ứng dụng OAuth cá nhân hợp lệ để tránh giới hạn này, tuân thủ các yêu cầu xác minh/cảnh báo của Google. Scope `drive` là quyền rộng vì cần đọc/sửa file có sẵn. Chỉ chọn thư mục cụ thể trong EXE để hạn chế phạm vi xử lý thực tế.
 
-## Tiêu chí trước khi phát hành
-- Windows x64 / tài khoản thường; kiểm tra thực tế EXE portable, tray, HKCU startup.
-- Kiểm thử tạo/sửa/đổi tên/xóa/di chuyển Excel, file nhiều GB, Office lock file.
-- Kiểm thử mất mạng, retry, reboot giữa lúc tải, phiên bản xung đột, OAuth expiry.
-- Đo usage/latency khi ít thay đổi, bảo đảm không polling dày và không quét My Drive mỗi vòng.
-- Windows build PASS không đồng nghĩa Google OAuth & sync PASS trên laptop thực tế.
+## Cách sử dụng hằng ngày
+1. Bấm **Chọn thư mục** trên laptop.
+2. Bấm **Chọn thư mục** ở phía Google Drive; chọn thư mục hiện tại hoặc tạo thư mục mới; không nên chọn toàn bộ My Drive.
+3. Lần đầu sẽ xuất hiện xác nhận. **CÓ** = đồng bộ xóa hai chiều (Drive vào Trash, local chuyển Recovery). **KHÔNG** = chỉ thêm/sửa file, không tự đồng bộ thao tác xóa. **HỦY** = chưa bắt đầu.
+4. Sau khi chọn xong, tự đồng bộ. Dùng Excel/File Explorer bình thường; nhấn Ctrl+S để lưu.
+5. Bật **Tự khởi động cùng Windows**, bấm **Chạy ngầm**. Từ biểu tượng khay hệ thống chọn Mở/Tạm dừng/Tiếp tục/Thoát.
 
-## Tách phạm vi
-Repo này hiện là ứng dụng in tem WMS. Nhánh design/drive-sync-portable-ui chỉ thêm HTML/Markdown thiết kế trong thư mục design/drive-sync-portable. Không sửa source, config hay workflow WMS. Khi được duyệt, ứng dụng đồng bộ cần repo độc lập để tách CI/release/credentials.
+**Đồng bộ local:** FileSystemWatcher theo dõi sự kiện, chờ ổn định trước upload. **Đồng bộ Drive:** `changes.list` mỗi khoảng 60 giây và chỉ quét lại thư mục khi có thay đổi hoặc đối soát sau khoảng một giờ. Không chạy server riêng; vẫn có request upload/download/kiểm tra changes/token.
 
-## Bản dựng Windows v0.1 — sau khi chốt UX
+## Bảo vệ dữ liệu
+- File trùng tên nhưng nội dung khác trong lần đầu: giữ bản laptop với hậu tố `(xung-dot-laptop-...)`, tải bản Drive vào đường dẫn chính.
+- Khi cả laptop và Drive cùng chỉnh file sau đồng bộ: giữ bản laptop xung đột, bản Drive về đường dẫn chính. Bản xung đột được tải lên trong lần kế tiếp.
+- Xóa trên Drive trong chế độ mirror-deletes: chuyển file local vào `%LOCALAPPDATA%\DriveSyncPortable\Recovery\...`.
+- Xóa trên laptop trong chế độ mirror-deletes: chuyển file trên Drive vào thùng rác Google (không xóa vĩnh viễn).
+- Kiểm tra MD5 của bản tải về; không ghi đè nếu local vừa thay đổi trong khi tải.
+- Hàng đợi bền vững bằng checkpoints JSON trong `%LOCALAPPDATA%\DriveSyncPortable\settings.json`. Khi app mở lại, đối chiếu dữ liệu.
+- Mật khẩu Google không đi qua EXE. Refresh/access token và Client Secret được DPAPI mã hóa theo user Windows. Không gửi log, token, hay nội dung file sang server bên thứ ba.
+- Chỉ chạy một phiên đồng bộ mỗi user Windows.
 
-Mã nguồn WinForms đã tạo tại src/DriveSyncPortable/ và workflow build riêng tại .github/workflows/build-drivesync-ui.yml.
+## Giới hạn bản Beta
+- **Chưa kiểm thử thực tế bằng Gmail và file Excel thật của chủ sở hữu.** CI PASS không thay thế được field PASS.
+- Google Docs, Sheets, Slides gốc (dạng web) chưa chuyển đổi thành tệp Windows; bản Beta bỏ qua và ghi trạng thái. Hãy dùng các tệp XLSX/DOCX/PDF hoặc mở Google Docs trực tuyến.
+- Bản Beta dùng upload một lượt trong phiên resumable; chưa có tiếp tục tải từ byte giữa chừng khi file quá lớn hoặc đứt mạng (lần sau gửi lại).
+- Chưa tối ưu thao tác đổi tên file bằng Move API; hiện xử lý như xóa cũ / tạo mới, vì vậy phải thử trên dữ liệu giả trước khi bật mirror-deletes.
+- Tệp Windows mang tên không hợp lệ hoặc tên bị trùng không phân biệt hoa-thường sẽ được bỏ qua và ghi lỗi; không tự xóa.
+- Google có thể yêu cầu xác thực lại; Windows/AppLocker/IT có thể chặn chương trình.
+- Google Drive API được công bố không tính thêm phí ở mức sử dụng tiêu chuẩn; phải theo dõi quota và không bật billing trả phí nếu không muốn rủi ro phí.
 
-- MainForm.cs: bố cục đã duyệt, tài khoản, 2 ô thư mục, toggle tự khởi động, chạy ngầm, tạm dừng và nhật ký minh họa.
-- VisualControls.cs: RoundedPanel, RoundedButton, ToggleSwitch theo palette đã duyệt.
-- Program.cs: entry point và UI smoke test.
-- Build win-x64 net8.0-windows self-contained single-file, manifest asInvoker.
-- Nút chọn thư mục laptop đã hoạt động ở cấp UI; không đọc/upload file.
-- Tự khởi động chỉ viết/xóa HKCU Run/DriveSyncPortableUI khi người dùng chủ động bật; có thể bị policy chặn.
-- Chạy ngầm thu nhỏ vào khay hệ thống, menu mở/tạm dừng mô phỏng/thoát; chưa có engine đồng bộ.
-- Đăng nhập Google và chọn thư mục Google Drive là mục CHƯA TRIỂN KHAI, không yêu cầu mật khẩu.
-- Tạm dừng chỉ thay đổi trạng thái UI vì chưa có sync thực. Nhật ký được dán nhãn dữ liệu mẫu.
-- Source và bản phát hành WMS không bị chỉnh sửa.
+## Kiểm thử chấp nhận trước khi đưa vào tài liệu thật
+- Tạo thư mục **DriveSync_Test** riêng bên Google Drive và laptop; đặt vào 3 file mẫu XLSX, PDF, TXT.
+- Chỉnh XLSX nhiều lần nhanh, nhấn Ctrl+S; xác minh file Drive thực sự cập nhật nội dung, không chỉ nhìn nhãn UI.
+- Copy thêm file, tạo subfolder, đổi tên file, di chuyển file và thử xóa (chỉ trên dữ liệu mẫu). Xác minh hai chiều.
+- Thử sửa cùng file ở Drive và laptop rồi kiểm tra bản xung đột.
+- Ngắt mạng, chỉnh file, bật mạng lại; đảm bảo không mất và không nhân đôi dữ liệu.
+- Đóng/mở lại ứng dụng và restart Windows; thử khay hệ thống và HKCU autostart.
+- Chỉ chốt Production sau khi đạt tất cả các bài kiểm tra trên máy thực tế.
 
-### Tải và chạy thử giao diện
-
-Vào GitHub Actions → Build DriveSync Portable UI → run PASS → artifact DriveSyncPortable-UI-Preview-win-x64. Giải nén hai lớp ZIP nếu cần, chạy DriveSyncPortable.exe nếu Windows policy cho phép.
+## Phạm vi repo
+Ứng dụng DriveSync nằm hoàn toàn tại `design/drive-sync-portable/src/DriveSyncPortable`, workflow riêng. Không sửa mã nghiệp vụ hoặc phát hành WMS đang chạy. PR #30 không merge main cho tới khi tách ứng dụng sang repo độc lập.
