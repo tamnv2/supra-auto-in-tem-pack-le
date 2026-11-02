@@ -4,8 +4,8 @@ using System.Text.RegularExpressions;
 namespace SupraAutoPackLe;
 
 /// <summary>
-/// Carton-label operation: SO + Enter only. No personnel, statistics, XLSX or
-/// business-history writes. The existing Tote packing workflow is untouched.
+/// Carton-label operation: SO + Enter only. Separate verified carton-correction
+/// audit and XLSX reporting; no writes to loose packing personnel/productivity.
 /// </summary>
 internal sealed class TemChanPanel : UserControl
 {
@@ -29,6 +29,9 @@ internal sealed class TemChanPanel : UserControl
     private readonly Button _stopPrint = new() { Text="DỪNG IN TEM",Height=46,
         Dock=DockStyle.Fill,BackColor=Color.FromArgb(177,49,49),ForeColor=Color.White,
         Font=new Font("Segoe UI",11,FontStyle.Bold) };
+    private readonly Button _exportCorrections = new() { Text="XUẤT BÁO CÁO SỬA KIỆN",
+        Height=48,Dock=DockStyle.Fill,BackColor=Color.FromArgb(32,95,153),
+        ForeColor=Color.White,Font=new Font("Segoe UI",11,FontStyle.Bold) };
     private readonly Button _correctionDone = new() { Text="ĐÃ SỬA XONG · KIỂM TRA LẠI",Height=46,
         Dock=DockStyle.Fill,Visible=false,BackColor=Color.FromArgb(23,132,75),
         ForeColor=Color.White,Font=new Font("Segoe UI",10,FontStyle.Bold) };
@@ -68,6 +71,8 @@ internal sealed class TemChanPanel : UserControl
             Step("Chưa xác minh máy in. Ô SO tạm khóa.");
         }
     }
+    private sealed record PendingCorrection(string Before,int After,string Reason);
+    private int _browserToggleGeneration;
     private bool _uncertain;
     public bool IsBusy=>_busy;
     public bool NeedsManualReview=>_uncertain;
@@ -84,7 +89,7 @@ internal sealed class TemChanPanel : UserControl
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,56));
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,112));
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute,68));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,108));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute,156));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent,100));
         shell.Controls.Add(new Label { Dock=DockStyle.Fill,
             Text="IN TEM CHẴN | Nhập SO để mở trực tiếp đơn hàng",
@@ -104,18 +109,21 @@ internal sealed class TemChanPanel : UserControl
         row.Controls.Add(hint,1,1);
         shell.Controls.Add(row,0,1);
         shell.Controls.Add(_state,0,2);
-        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3,RowCount=2 };
+        var commands=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3,RowCount=3 };
         commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,40));
         commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
         commands.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,30));
-        commands.RowStyles.Add(new RowStyle(SizeType.Percent,50));
-        commands.RowStyles.Add(new RowStyle(SizeType.Percent,50));
+        commands.RowStyles.Add(new RowStyle(SizeType.Percent,33.3f));
+        commands.RowStyles.Add(new RowStyle(SizeType.Percent,33.3f));
+        commands.RowStyles.Add(new RowStyle(SizeType.Percent,33.4f));
         commands.Controls.Add(_browserToggle,0,0);
         commands.Controls.Add(_supraReady,1,0);
         commands.Controls.Add(_manual,2,0);
         commands.Controls.Add(_stopPrint,0,1);
         commands.Controls.Add(_correctionDone,1,1);
         commands.SetColumnSpan(_correctionDone,2);
+        commands.Controls.Add(_exportCorrections,0,2);
+        commands.SetColumnSpan(_exportCorrections,3);
         shell.Controls.Add(commands,0,3);
         var wrap=new Panel { Dock=DockStyle.Fill,Padding=new Padding(14),BackColor=Color.White };
         wrap.Controls.Add(_steps);
@@ -127,7 +135,11 @@ internal sealed class TemChanPanel : UserControl
         _so.KeyDown += async (_,e) => {
             if(e.KeyCode==Keys.Enter) { e.SuppressKeyPress=true; await RunAsync(); }
         };
-        _browserToggle.Click+=(_,_)=>{if(BrowserIsShown)_hideBrowser();else _showBrowser();};
+        _browserToggle.Click+=(_,_)=>{
+            ++_browserToggleGeneration;
+            if(BrowserIsShown)_hideBrowser();else _showBrowser();
+        };
+        _exportCorrections.Click+=(_,_)=>ExportCorrections();
         _stopPrint.Click+=(_,_)=>RequestStop();
         _correctionDone.Click+=(_,_)=>ConfirmCorrectionFinished();
         _supraReady.Click+=(_,_)=> {
@@ -210,6 +222,80 @@ internal sealed class TemChanPanel : UserControl
         _log.Trace("EVEN","STOP_REQUESTED","DONE",_workClock.ElapsedMilliseconds);
         _printCancel?.Cancel();
         _correctionGate?.TrySetResult(false);
+    }
+
+    private void ExportCorrections()
+    {
+        if(_busy)
+        {
+            MessageBox.Show(this,"Hãy chờ lượt sửa/in tem đang chạy kết thúc trước khi xuất báo cáo.",
+                "Đang xử lý",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            return;
+        }
+        try
+        {
+            var available=_log.CartonCorrections();
+            if(available.Count==0)
+            {
+                MessageBox.Show(this,
+                    "Chưa có lịch sử sửa kiện được xác minh trên phiên bản hỗ trợ ghi nhận.",
+                    "Chưa có dữ liệu",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                return;
+            }
+            using var filter=new Form { Text="Lọc báo cáo sửa kiện",Width=480,Height=250,
+                StartPosition=FormStartPosition.CenterParent,
+                FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,
+                MinimizeBox=false };
+            var choice=new ComboBox {Left=18,Top=15,Width=420,
+                DropDownStyle=ComboBoxStyle.DropDownList};
+            choice.Items.AddRange(["Tất cả","Một ngày","Khoảng ngày"]);
+            choice.SelectedIndex=0;
+            var from=new DateTimePicker {Left=18,Top=60,Width=200,
+                Format=DateTimePickerFormat.Short,Value=DateTime.Today};
+            var to=new DateTimePicker {Left=235,Top=60,Width=200,
+                Format=DateTimePickerFormat.Short,Value=DateTime.Today};
+            void Sync(){from.Enabled=choice.SelectedIndex!=0;to.Enabled=choice.SelectedIndex==2;}
+            choice.SelectedIndexChanged+=(_,_)=>Sync();
+            Sync();
+            var accept=new Button {Text="TIẾP TỤC XUẤT EXCEL",Left=18,Top=122,
+                Width=300,Height=50,BackColor=Color.FromArgb(30,102,175),
+                ForeColor=Color.White,Font=new Font("Segoe UI",11,FontStyle.Bold)};
+            accept.Click+=(_,_)=>{
+                if(choice.SelectedIndex==2 && to.Value.Date<from.Value.Date)
+                {
+                    MessageBox.Show(filter,"Ngày kết thúc không được trước ngày bắt đầu.");
+                    return;
+                }
+                filter.DialogResult=DialogResult.OK;
+                filter.Close();
+            };
+            filter.Controls.AddRange([choice,from,to,accept]);
+            if(filter.ShowDialog(this)!=DialogResult.OK)return;
+            DateTime? fromDate=choice.SelectedIndex==0?null:from.Value.Date;
+            DateTime? toDate=choice.SelectedIndex==0?null:
+                choice.SelectedIndex==1?from.Value.Date:to.Value.Date;
+            using var save=new SaveFileDialog {
+                Title="Xuất báo cáo sửa kiện Excel",
+                Filter="Excel Workbook (*.xlsx)|*.xlsx",
+                FileName="SUPRA_Bao_Cao_Sua_Kien_"+
+                    DateTime.Now.ToString("yyyyMMdd_HHmmss")+".xlsx"
+            };
+            if(save.ShowDialog(this)!=DialogResult.OK)return;
+            var rows=_log.FilterCartonCorrections(fromDate,toDate).Count;
+            _log.ExportCartonCorrectionsXlsx(save.FileName,fromDate,toDate);
+            _log.Trace("EXPORT","CARTON_CORRECTIONS_XLSX","DONE",0,"ROWS="+rows);
+            MessageBox.Show(this,"Đã xuất "+rows+" lượt sửa kiện ra Excel."+
+                (rows==0?" Không có bản ghi phù hợp bộ lọc đã chọn.":""),
+                "Xuất báo cáo sửa kiện",MessageBoxButtons.OK,
+                rows>0?MessageBoxIcon.Information:MessageBoxIcon.Warning);
+        }
+        catch(Exception)
+        {
+            _log.Trace("EXPORT","CARTON_CORRECTIONS_XLSX","ERROR");
+            MessageBox.Show(this,
+                "Không xuất được báo cáo sửa kiện. Kiểm tra file đang mở, quyền ghi hoặc dữ liệu lịch sử.",
+                "Xuất báo cáo thất bại",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+        }
     }
 
     public void FocusSo()
@@ -424,6 +510,7 @@ internal sealed class TemChanPanel : UserControl
         bool printIssued=false;
         bool correctionMayHaveSubmitted=false;
         int? expectedAfterCorrection=null;
+        PendingCorrection? pendingCorrection=null;
         try
         {
             // One SO can return here after manual correction. Always re-read WMS.
@@ -463,10 +550,21 @@ internal sealed class TemChanPanel : UserControl
                        p.finish!=expectedAfterCorrection.Value || p.begin!=1)
                         throw new TemChanStop("WMS chưa xác nhận số kiện vừa sửa. "+
                             "Hãy kiểm tra lại trên WMS; không tự in tem.");
+                    if(pendingCorrection is null ||
+                       pendingCorrection.After!=expectedAfterCorrection.Value)
+                        throw new TemChanStop("Thiếu thông tin ghi nhận lịch sử sửa kiện.");
+                    var correctionRow=new CartonCorrectionRow(
+                        Guid.NewGuid().ToString("N"),so,DateTime.Now,
+                        pendingCorrection.Before,pendingCorrection.After,
+                        pendingCorrection.Reason);
+                    if(!_log.TryAppendCartonCorrection(correctionRow))
+                        throw new TemChanStop("WMS đã sửa kiện nhưng không lưu được lịch sử. "+
+                            "Kiểm tra dữ liệu máy trước khi xử lý tiếp.");
                     _log.Trace("EVEN","HANDOVER_NEW_QUANTITY_VERIFIED","DONE",
                         _workClock.ElapsedMilliseconds);
                     correctionMayHaveSubmitted=false;
                     expectedAfterCorrection=null;
+                    pendingCorrection=null;
                 }
                 // Never equate SKU count with cartons until the WMS range agrees.
                 bool countMatchesOneSku=p.skuCount!=1 || (p.total==1 && p.finish==1);
@@ -525,13 +623,25 @@ internal sealed class TemChanPanel : UserControl
                             _so.Clear();
                             return;
                         }
+                        // Preserve original WMS value, including noninteger values.
+                        var original=p.finishRaw?.Trim();
+                        if(string.IsNullOrWhiteSpace(original))
+                            original=p.finish>0?p.finish.ToString():"Không đọc được";
+                        pendingCorrection=new PendingCorrection(
+                            original,correction.Quantity,correction.Reason);
+                        bool browserInitiallyShown=BrowserIsShown;
+                        int toggleGeneration=_browserToggleGeneration;
                         await AutoCorrectCartonsAsync(so,correction.Quantity,ct,
                             ()=>correctionMayHaveSubmitted=true);
                         expectedAfterCorrection=correction.Quantity;
                         _log.Trace("EVEN","CARTON_RECHECK_AFTER_CORRECTION","WAIT",
                             _workClock.ElapsedMilliseconds);
                         _browser.FocusPrintTab();
-                        _hideBrowser();
+                        // Retain an explicitly shown WMS browser. Never override a
+                        // user toggle made while the correction automation was running.
+                        if(!browserInitiallyShown &&
+                           toggleGeneration==_browserToggleGeneration)
+                            _hideBrowser();
                         needRecheck=true;
                         break;
                     }

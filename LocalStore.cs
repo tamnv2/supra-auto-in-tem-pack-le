@@ -23,11 +23,17 @@ internal sealed record HistoryRow(string Date, string Start, string End, long Se
 internal sealed record DiagRow(string At, string Version, string Stage, string Event, string Outcome, long ElapsedMs, string Detail);
 internal sealed record DiagnosticExportResult(string Path,int ExportedFiles,int DeletedFiles);
 
+// Business record: separate from technical logs and loose packing production.
+internal sealed record CartonCorrectionRow(string Id,string SO,DateTime CorrectedAt,
+    string BeforeCount,int AfterCount,string Reason);
+
 internal sealed class LocalStore
 {
     public readonly string Root;
     private string PeoplePath => Path.Combine(Root,"people.json");
     private string HistoryPath => Path.Combine(Root,"history.jsonl");
+    private string CartonCorrectionPath => Path.Combine(Root,"carton-corrections.jsonl");
+    private static readonly object CartonCorrectionGate=new();
     private string Logs => Path.Combine(Root,"logs");
     // Also used by the global UI exception handler, which creates another
     // LocalStore instance. No append/delete race within the process.
@@ -381,6 +387,126 @@ internal sealed class LocalStore
         if(index>2)ws.Range(1,1,index-1,header.Length).SetAutoFilter();
         wb.SaveAs(filename);
     }
+    /// <summary>Verified WMS corrections only. Business values never enter diagnostic logs.</summary>
+    public bool TryAppendCartonCorrection(CartonCorrectionRow item)
+    {
+        if(string.IsNullOrWhiteSpace(item.Id) ||
+           !Regex.IsMatch(item.SO,@"^[A-Z0-9_-]{5,50}$") ||
+           (string.IsNullOrWhiteSpace(item.BeforeCount) ||
+             item.BeforeCount.Length>40 || item.BeforeCount.Any(char.IsControl)) ||
+           item.AfterCount<1 || item.AfterCount>999999 ||
+           string.IsNullOrWhiteSpace(item.Reason) || item.Reason.Length>300)
+            return false;
+        try
+        {
+            lock(CartonCorrectionGate)
+            {
+                var bytes=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(item,Json)+"\n");
+                using(var file=new FileStream(CartonCorrectionPath,FileMode.Append,
+                    FileAccess.Write,FileShare.Read))
+                {
+                    file.Write(bytes);
+                    file.Flush(flushToDisk:true);
+                }
+                // Verify that the durable journal actually contains the new record.
+                bool exists=false;
+                foreach(var line in File.ReadLines(CartonCorrectionPath))
+                {
+                    if(string.IsNullOrWhiteSpace(line))continue;
+                    try
+                    {
+                        var record=JsonSerializer.Deserialize<CartonCorrectionRow>(line);
+                        if(record?.Id==item.Id && record.SO==item.SO &&
+                           record.AfterCount==item.AfterCount && record.Reason==item.Reason)
+                           exists=true;
+                    }
+                    catch(JsonException) { /* legacy bad lines checked during export */ }
+                }
+                Trace("EVEN","CARTON_HISTORY_PERSIST",exists?"DONE":"ERROR");
+                return exists;
+            }
+        }
+        catch(IOException){Trace("EVEN","CARTON_HISTORY_WRITE","ERROR");return false;}
+        catch(UnauthorizedAccessException){Trace("EVEN","CARTON_HISTORY_ACCESS","ERROR");return false;}
+        catch(Exception){Trace("EVEN","CARTON_HISTORY_UNKNOWN","ERROR");return false;}
+    }
+
+    public IReadOnlyList<CartonCorrectionRow> CartonCorrections()
+    {
+        lock(CartonCorrectionGate)
+        {
+            var rows=new List<CartonCorrectionRow>();
+            if(!File.Exists(CartonCorrectionPath))return rows;
+            var seen=new HashSet<string>(StringComparer.Ordinal);
+            foreach(var line in File.ReadLines(CartonCorrectionPath))
+            {
+                if(string.IsNullOrWhiteSpace(line))continue;
+                CartonCorrectionRow? row;
+                try { row=JsonSerializer.Deserialize<CartonCorrectionRow>(line); }
+                catch(JsonException ex) { throw new InvalidDataException(
+                    "Lịch sử sửa kiện có dữ liệu lỗi. Không xuất báo cáo thiếu dòng.",ex); }
+                if(row is null || string.IsNullOrWhiteSpace(row.Id) ||
+                   !Regex.IsMatch(row.SO,@"^[A-Z0-9_-]{5,50}$") ||
+                   row.AfterCount<1 || row.AfterCount>999999 ||
+                   string.IsNullOrWhiteSpace(row.Reason))
+                    throw new InvalidDataException("Bản ghi lịch sử sửa kiện không hợp lệ.");
+                if(seen.Add(row.Id))rows.Add(row);
+            }
+            return rows;
+        }
+    }
+
+    public IReadOnlyList<CartonCorrectionRow> FilterCartonCorrections(
+        DateTime? from=null,DateTime? to=null)
+    {
+        if(from.HasValue && to.HasValue && from.Value.Date>to.Value.Date)
+            throw new ArgumentException("Khoảng ngày không hợp lệ.");
+        return CartonCorrections().Where(r=>
+            (!from.HasValue || r.CorrectedAt.Date>=from.Value.Date) &&
+            (!to.HasValue || r.CorrectedAt.Date<=to.Value.Date)).ToList();
+    }
+
+    public void ExportCartonCorrectionsXlsx(string filename,
+        DateTime? from=null,DateTime? to=null)
+    {
+        var rows=FilterCartonCorrections(from,to);
+        using var book=new XLWorkbook();
+        var sheet=book.AddWorksheet("Báo cáo sửa kiện");
+        string[] columns=["Mã SO","Thời gian sửa kiện","Số kiện trước khi sửa",
+            "Số kiện sau khi sửa","Lý do sửa"];
+        for(var c=0;c<columns.Length;c++)sheet.Cell(1,c+1).Value=columns[c];
+        var i=2;
+        foreach(var row in rows.OrderBy(r=>r.CorrectedAt))
+        {
+            sheet.Cell(i,1).Value=SafeExcel(row.SO);
+            sheet.Cell(i,2).Value=row.CorrectedAt;
+            sheet.Cell(i,2).Style.DateFormat.Format="dd/mm/yyyy hh:mm:ss";
+            if(int.TryParse(row.BeforeCount,NumberStyles.None,CultureInfo.InvariantCulture,
+                out var before))
+                sheet.Cell(i,3).Value=before;
+            else sheet.Cell(i,3).Value=SafeExcel(row.BeforeCount);
+            sheet.Cell(i,4).Value=row.AfterCount;
+            sheet.Cell(i,5).Value=SafeExcel(row.Reason);
+            i++;
+        }
+        sheet.Range(1,1,1,5).Style.Font.Bold=true;
+        sheet.Range(1,1,1,5).Style.Font.FontColor=XLColor.White;
+        sheet.Range(1,1,1,5).Style.Fill.BackgroundColor=XLColor.FromHtml("#193454");
+        sheet.Row(1).Height=30;
+        sheet.Column(1).Width=26;
+        sheet.Column(2).Width=23;
+        sheet.Column(3).Width=24;
+        sheet.Column(4).Width=24;
+        sheet.Column(5).Width=65;
+        if(i>2)
+        {
+            sheet.Range(1,1,i-1,5).SetAutoFilter();
+            sheet.Range(2,5,i-1,5).Style.Alignment.WrapText=true;
+        }
+        sheet.SheetView.FreezeRows(1);
+        book.SaveAs(filename);
+    }
+
     private static string SafeExcel(string? value)
     {
         value??="";
