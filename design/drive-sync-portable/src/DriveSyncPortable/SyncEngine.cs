@@ -5,7 +5,7 @@ namespace DriveSyncPortable;
 internal sealed class SyncEngine : IDisposable
 {
     private readonly SettingsStore _store;
-    private readonly GoogleDriveApi _drive;
+    private readonly ICloudDriveApi _drive;
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly SemaphoreSlim _syncLock = new(1, 1);
     private CancellationTokenSource? _cancel;
@@ -21,7 +21,7 @@ internal sealed class SyncEngine : IDisposable
     public bool IsRunning => _loop is { IsCompleted: false };
     public bool Paused { get; private set; }
 
-    public SyncEngine(SettingsStore settings, GoogleDriveApi api)
+    public SyncEngine(SettingsStore settings, ICloudDriveApi api)
     {
         _store = settings;
         _drive = api;
@@ -123,6 +123,12 @@ internal sealed class SyncEngine : IDisposable
                 catch (OperationCanceledException) { break; }
             }
         }
+    }
+
+    public Task SyncNowAsync(CancellationToken ct)
+    {
+        Interlocked.Exchange(ref _dirty, 1);
+        return RunOnceAsync(ct);
     }
 
     public async Task RunOnceAsync(CancellationToken ct)
@@ -401,7 +407,7 @@ internal sealed class SyncEngine : IDisposable
         {
             if (_store.Data.MirrorDeletes && !localChanged)
             {
-                string backup = Path.Combine(SettingsStore.BaseFolder, "Recovery", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),
+                string backup = Path.Combine(_store.StorageFolder, "Recovery", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),
                     relative.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
                 File.Move(localFile!, backup);
