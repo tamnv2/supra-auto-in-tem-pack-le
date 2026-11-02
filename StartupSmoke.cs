@@ -38,6 +38,40 @@ internal static class StartupSmoke
                    sheet.Cell(2,7).GetString()!="DO12345678")
                     throw new Exception("XLSX_VALUES_FAILED");
             }
+            // Durable correction report is distinct from the loose-packing history.
+            var correctionId=Guid.NewGuid().ToString("N");
+            var firstCorrection=new CartonCorrectionRow(correctionId,"SO12345678",
+                new DateTime(2026,11,2,17,52,20),"31",30,"Kiểm đếm thực tế thiếu một kiện");
+            if(!store.TryAppendCartonCorrection(firstCorrection))
+                throw new Exception("CARTON_CORRECTION_WRITE_FAILED");
+            var nextCorrection=new CartonCorrectionRow(Guid.NewGuid().ToString("N"),
+                "SO12345678",new DateTime(2026,11,3,8,3,5),"30",29,"=1+1");
+            if(!store.TryAppendCartonCorrection(nextCorrection))
+                throw new Exception("CARTON_CORRECTION_SECOND_WRITE_FAILED");
+            var rebootedCorrections=new LocalStore(tmp).CartonCorrections();
+            if(rebootedCorrections.Count!=2 ||
+               rebootedCorrections[0].SO!="SO12345678" ||
+               rebootedCorrections[0].Reason!="Kiểm đếm thực tế thiếu một kiện")
+                throw new Exception("CARTON_CORRECTION_RESTART_FAILED");
+            if(store.FilterCartonCorrections(new DateTime(2026,11,2),
+                new DateTime(2026,11,2)).Count!=1)
+                throw new Exception("CARTON_CORRECTION_DATE_FILTER_FAILED");
+            var cartonFile=Path.Combine(tmp,"carton-report.xlsx");
+            store.ExportCartonCorrectionsXlsx(cartonFile);
+            using(var book=new XLWorkbook(cartonFile))
+            {
+                var ws=book.Worksheet("Báo cáo sửa kiện");
+                if(ws.LastRowUsed()?.RowNumber()!=3 ||
+                   ws.Cell(1,1).GetString()!="Mã SO" ||
+                   ws.Cell(1,5).GetString()!="Lý do sửa" ||
+                   ws.Cell(2,1).GetString()!="SO12345678" ||
+                   ws.Cell(2,3).GetDouble()!=31 ||
+                   ws.Cell(2,4).GetDouble()!=30 ||
+                   ws.Cell(2,5).GetString()!="Kiểm đếm thực tế thiếu một kiện" ||
+                   ws.Cell(2,2).GetDateTime()!=new DateTime(2026,11,2,17,52,20) ||
+                   ws.Cell(3,5).GetString().StartsWith("="))
+                    throw new Exception("CARTON_CORRECTION_XLSX_CONTENT_FAILED");
+            }
             var checkpointId=Guid.NewGuid().ToString("N");
             var checkpoint=new HistoryRow("15/10/2026","09:00:00","09:00:03",3,
                 "Người thử A","","","IN_PROGRESS"){AttemptId=checkpointId,Phase="START"};
@@ -136,7 +170,8 @@ internal static class StartupSmoke
                    !saved.Entries.Any(e=>e.FullName=="README.txt"))
                     throw new Exception("DIAGNOSTIC_EXPORT_UNREADABLE");
             if(!File.Exists(Path.Combine(tmp,"history.jsonl"))||
-               !File.Exists(Path.Combine(tmp,"people.json")))
+               !File.Exists(Path.Combine(tmp,"people.json"))||
+               !File.Exists(Path.Combine(tmp,"carton-corrections.jsonl")))
                 throw new Exception("DIAGNOSTIC_PURGE_TOUCHED_BUSINESS_DATA");
             store.TraceException("TEST","EXCEPTION_TEST",
                 new InvalidOperationException("password=SHOULD_NEVER_APPEAR"));
