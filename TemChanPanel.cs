@@ -347,6 +347,8 @@ internal sealed class TemChanPanel : UserControl
             while(true)
             {
                 ct.ThrowIfCancellationRequested();
+                if(!_printerReady)
+                    throw new TemChanStop("Phiên WMS đã thay đổi. Xác nhận SUPRA SẴN SÀNG trước khi tiếp tục.");
                 _browser.FocusPrintTab();
                 _state.Text="ĐANG KIỂM TRA SO · Chưa in tem";
                 Step("Mở chi tiết SO để đọc trạng thái và Tổng số lượng / Tổng SKU.");
@@ -433,6 +435,8 @@ internal sealed class TemChanPanel : UserControl
                 ct.ThrowIfCancellationRequested();
                 var readback=await _browser.TemChanPeekAsync(so);
                 ct.ThrowIfCancellationRequested();
+                if(!_printerReady)
+                    throw new TemChanStop("Phiên đăng nhập WMS đã thay đổi trước lệnh in.");
                 if(readback?.ok!=true || !readback.statusValid || !readback.skuKnown ||
                    readback.skuCount!=p.skuCount || !readback.dialogOpen ||
                    !readback.rangeValid || !readback.fullRange ||
