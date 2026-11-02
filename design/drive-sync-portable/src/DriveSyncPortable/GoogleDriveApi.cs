@@ -68,7 +68,7 @@ internal sealed class GoogleDriveApi : IDisposable
 
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancel);
         limit.CancelAfter(TimeSpan.FromMinutes(5));
-        Process.Start(new ProcessStartInfo(auth) { UseShellExecute = true })
+        _ = Process.Start(new ProcessStartInfo(auth) { UseShellExecute = true })
             ?? throw new InvalidOperationException("Không mở được trình duyệt để xác thực Google.");
 
         using var connection = await listener.AcceptTcpClientAsync(limit.Token);
