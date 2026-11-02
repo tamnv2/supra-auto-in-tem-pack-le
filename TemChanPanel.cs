@@ -304,6 +304,85 @@ internal sealed class TemChanPanel : UserControl
         if(!result.ok)throw new TemChanStop("Không xác nhận được thao tác "+action+
             " ("+result.reason+"). Không tự click lại.");
     }
+    private async Task<HandoverPeek> WaitHandoverAsync(string so,int quantity,
+        Func<HandoverPeek,bool> predicate,string stage,int timeoutSeconds,CancellationToken ct)
+    {
+        var clock=Stopwatch.StartNew();
+        var stable=0;
+        while(clock.Elapsed<TimeSpan.FromSeconds(timeoutSeconds))
+        {
+            ct.ThrowIfCancellationRequested();
+            var peek=await _browser.HandoverPeekAsync(so,quantity);
+            ct.ThrowIfCancellationRequested();
+            if(peek?.ok==true && predicate(peek))
+            {
+                if(++stable>=2)
+                {
+                    _log.Trace("EVEN","HANDOVER_WAIT_"+stage,"DONE",clock.ElapsedMilliseconds);
+                    return peek;
+                }
+            }
+            else stable=0;
+            await Task.Delay(350,ct);
+        }
+        _log.Trace("EVEN","HANDOVER_WAIT_"+stage,"TIMEOUT",clock.ElapsedMilliseconds);
+        throw new TemChanStop("Không xác minh được bước sửa kiện "+stage+
+            " trong WMS. Dừng tự động để tránh sửa nhầm SO.");
+    }
+
+    private async Task HandoverStepAsync(string action,string so,int quantity,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var result=await _browser.HandoverActionAsync(action,so,quantity);
+        ct.ThrowIfCancellationRequested();
+        if(!result.ok)
+            throw new TemChanStop("Không thực hiện được bước sửa kiện "+action+
+                " ("+result.reason+"). Không tự click lại.");
+        Step("Đã hoàn tất bước sửa kiện "+action+".");
+    }
+
+    private async Task AutoCorrectCartonsAsync(string so,int quantity,CancellationToken ct,
+        Action markPossiblySubmitted)
+    {
+        ct.ThrowIfCancellationRequested();
+        if(!_printerReady)throw new TemChanStop("Phiên WMS đã thay đổi; không sửa kiện.");
+        if(!await _browser.OpenCorrectionAsync())
+            throw new TemChanStop("Không mở được WMS sửa kiện.");
+        _showBrowser();
+        _state.Text="ĐANG SỬA KIỆN · Chưa in tem";
+        Step("Mở trang bàn giao SO; tìm đúng đơn, sửa số lượng và xác nhận.");
+        await WaitHandoverAsync(so,quantity,
+            x=>x.searchInputCount==1 && x.searchButtonCount==1,"SEARCH_READY",30,ct);
+        await HandoverStepAsync("SEARCH_INPUT",so,quantity,ct);
+        await WaitHandoverAsync(so,quantity,x=>x.searchValueMatches,"SO_READBACK",8,ct);
+        await HandoverStepAsync("SEARCH_CLICK",so,quantity,ct);
+        await WaitHandoverAsync(so,quantity,
+            x=>x.rowCount==1 && x.rowActionCount==1,"EXACT_SO_ROW",25,ct);
+        await HandoverStepAsync("OPEN_UPDATE",so,quantity,ct);
+        await WaitHandoverAsync(so,quantity,
+            x=>x.updateDialogCount==1 && x.quantityInputCount==1,
+            "UPDATE_DIALOG",15,ct);
+        await HandoverStepAsync("SET_QUANTITY",so,quantity,ct);
+        await WaitHandoverAsync(so,quantity,
+            x=>x.quantityMatches && x.updateButtonCount==1,
+            "QUANTITY_READBACK",8,ct);
+        await HandoverStepAsync("UPDATE",so,quantity,ct);
+        await WaitHandoverAsync(so,quantity,
+            x=>x.confirmDialogCount==1 && x.confirmYesCount==1,
+            "CONFIRMATION",15,ct);
+        ct.ThrowIfCancellationRequested();
+        // Clicking Yes changes server state; do not retry after dispatch uncertainty.
+        markPossiblySubmitted();
+        await HandoverStepAsync("CONFIRM_YES",so,quantity,ct);
+        await WaitHandoverAsync(so,quantity,
+            x=>x.confirmDialogCount==0 && x.updateDialogCount==0,
+            "CONFIRM_CLOSED",20,ct);
+        Step("WMS đã đóng xác nhận sửa. Đang tải lại SO để kiểm tra số kiện thực tế.");
+        _log.Trace("EVEN","HANDOVER_UPDATE_UI_COMPLETE","DONE",
+            _workClock.ElapsedMilliseconds);
+    }
+
     private async Task RunAsync()
     {
         if(_busy || _uncertain)
@@ -341,6 +420,8 @@ internal sealed class TemChanPanel : UserControl
         _supraReady.Visible=false;
         _correctionDone.Visible=false;
         bool printIssued=false;
+        bool correctionMayHaveSubmitted=false;
+        int? expectedAfterCorrection=null;
         try
         {
             // One SO can return here after manual correction. Always re-read WMS.
@@ -374,6 +455,17 @@ internal sealed class TemChanPanel : UserControl
                 p=await WaitAsync(so,x=>x.dialogOpen,"Mở Tùy chọn in nhãn",15,ct);
                 ct.ThrowIfCancellationRequested();
 
+                if(expectedAfterCorrection.HasValue)
+                {
+                    if(!p.rangeValid || p.total!=expectedAfterCorrection.Value ||
+                       p.finish!=expectedAfterCorrection.Value || p.begin!=1)
+                        throw new TemChanStop("WMS chưa xác nhận số kiện vừa sửa. "+
+                            "Hãy kiểm tra lại trên WMS; không tự in tem.");
+                    _log.Trace("EVEN","HANDOVER_NEW_QUANTITY_VERIFIED","DONE",
+                        _workClock.ElapsedMilliseconds);
+                    correctionMayHaveSubmitted=false;
+                    expectedAfterCorrection=null;
+                }
                 // Never equate SKU count with cartons until the WMS range agrees.
                 bool countMatchesOneSku=p.skuCount!=1 || (p.total==1 && p.finish==1);
                 bool canPrint=p.rangeValid && p.fullRange && countMatchesOneSku;
@@ -386,11 +478,11 @@ internal sealed class TemChanPanel : UserControl
                     decimalValue?"SỐ KIỆN THẬP PHÂN KHÔNG HỢP LỆ":
                     "SỐ KIỆN / PHẠM VI KHÔNG HỢP LỆ";
                 string instructions=canPrint
-                    ? "Yêu cầu người lấy hàng đọc số kiện thực tế để đối chiếu.\\n"+
-                      "In phiếu kiểm và rà soát lại đúng số kiện.\\n\\n"+
+                    ? "Yêu cầu người lấy hàng đọc số kiện thực tế để đối chiếu.\n"+
+                      "In phiếu kiểm và rà soát lại đúng số kiện.\n\n"+
                       "Đúng: OK để in tem.    Sai: Sửa lại số kiện."
-                    : "Vui lòng In phiếu kiểm và rà soát lại đúng số kiện để sửa kiện.\\n"+
-                      "Phần mềm không tự làm tròn hoặc in với số kiện không hợp lệ.\\n"+
+                    : "Vui lòng in phiếu kiểm và rà soát lại đúng số kiện để sửa kiện.\n"+
+                      "Phần mềm không tự làm tròn hoặc in với số kiện không hợp lệ.\n"+
                       (p.skuCount==1?"SO có 1 SKU nhưng số kiện WMS chưa khớp 01.":"")+
                       (p.rangeValid && !p.fullRange?"Phạm vi in không bao phủ toàn bộ số thùng.":"");
                 _log.Trace("EVEN","CARTON_CONFIRMATION_SHOWN",canPrint?"DONE":"BLOCKED",
