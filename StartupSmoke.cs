@@ -201,7 +201,19 @@ internal static class StartupSmoke
                 throw new Exception("WMS_STATE_CONTRACT_MISSING");
             return 0;
         }
-        catch{return 1;}
+        catch(Exception ex)
+        {
+            // CI distinguishes a new correction-audit regression from older smoke cases.
+            return ex.Message switch
+            {
+                "CARTON_CORRECTION_WRITE_FAILED" => 51,
+                "CARTON_CORRECTION_SECOND_WRITE_FAILED" => 52,
+                "CARTON_CORRECTION_RESTART_FAILED" => 53,
+                "CARTON_CORRECTION_DATE_FILTER_FAILED" => 54,
+                "CARTON_CORRECTION_XLSX_CONTENT_FAILED" => 55,
+                _ => 1
+            };
+        }
         finally{try{Directory.Delete(tmp,true);}catch{}}
     }
 }
