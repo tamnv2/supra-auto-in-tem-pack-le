@@ -289,7 +289,7 @@ internal sealed class WmsBrowser : UserControl
         // Keep the existing loose-packing browser area effectively unchanged.
         _webPages.Appearance=temChan?TabAppearance.Normal:TabAppearance.FlatButtons;
         _webPages.SizeMode=temChan?TabSizeMode.Normal:TabSizeMode.Fixed;
-        _webPages.ItemSize=temChan?new Size(135,28):new Size(0,1);
+        _webPages.ItemSize=temChan?new Size(135,28):new Size(1,1);
         if(temChan)
         {
             if(!_webPages.TabPages.Contains(_correctionPage))
