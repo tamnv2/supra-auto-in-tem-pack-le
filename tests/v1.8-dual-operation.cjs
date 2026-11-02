@@ -159,7 +159,7 @@ for(const end of ['1.3','0.6','-1','0','NaN','10000']){
   const f=fixture({end});
   f.api.perform('TAB',f.so);f.api.perform('OPEN_PRINT',f.so);
   assert.equal(f.api.peek(f.so).rangeValid,false,'end='+end);
-  assert.equal(f.api.peek(f.so).finishRaw,end);
+  assert.equal(f.api.peek(f.so).finishRaw,end==='NaN'?'KHÔNG ĐỌC ĐƯỢC':end);
   assert.equal(f.api.perform('PRINT_LABEL',f.so).ok,false);
   assert.equal(f.commands(),0);
 }
