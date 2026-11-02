@@ -38,12 +38,14 @@ internal sealed class SettingsStore
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("DriveSyncPortable-v1-CurrentUser");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     public static string BaseFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DriveSyncPortable");
-    private static string SettingsPath => Path.Combine(BaseFolder, "settings.json");
+    public string StorageFolder { get; }
+    private string SettingsPath => Path.Combine(StorageFolder, "settings.json");
     public AppSettings Data { get; private set; }
 
-    public SettingsStore()
+    public SettingsStore(string? storageFolder = null)
     {
-        Directory.CreateDirectory(BaseFolder);
+        StorageFolder = storageFolder ?? BaseFolder;
+        Directory.CreateDirectory(StorageFolder);
         try
         {
             Data = File.Exists(SettingsPath)
@@ -59,7 +61,7 @@ internal sealed class SettingsStore
 
     public void Save()
     {
-        Directory.CreateDirectory(BaseFolder);
+        Directory.CreateDirectory(StorageFolder);
         var temp = SettingsPath + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(Data, JsonOptions), Encoding.UTF8);
         File.Move(temp, SettingsPath, true);
