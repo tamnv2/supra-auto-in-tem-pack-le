@@ -199,7 +199,7 @@ public sealed partial class MainForm : Form
         const int outerMargin = 18;
         const int gap = 12;
         int availableWidth = Math.Max(0, _viewport.ClientSize.Width);
-        int w = Math.Max(775, Math.Min(1328, availableWidth - outerMargin * 2));
+        int w = Math.Max(735, Math.Min(1328, availableWidth - outerMargin * 2));
         int x = Math.Max(outerMargin, (availableWidth - w) / 2);
         int half = (w - gap) / 2;
         int y = 14;
@@ -239,7 +239,7 @@ public sealed partial class MainForm : Form
 
             y += 80 + gap;
             _settings.SetBounds(x, y, w, 78);
-            _startup.Location = new Point(246, 40);
+            _startup.Location = new Point(298, 40);
             _background.SetBounds(w - 468, 33, 142, 35);
             _togglePause.SetBounds(w - 316, 33, 131, 35);
             _exitButton.SetBounds(w - 174, 33, 154, 35);
