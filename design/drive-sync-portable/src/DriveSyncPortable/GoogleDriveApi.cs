@@ -26,6 +26,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
     public GoogleDriveApi(SettingsStore store) { _store = store; }
 
     public bool IsSignedIn => _store.GetToken()?.RefreshToken?.Length > 0;
+    public Action<TransferProgress>? TransferChanged { get; set; }
 
     private static string Param(string value) => Uri.EscapeDataString(value);
     private static string GetString(JsonElement element, string property)
@@ -256,13 +257,19 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         Uri location = response.Headers.Location
             ?? throw new InvalidOperationException("Google không cung cấp URL upload.");
         await using var file = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, true);
-        using var payload = new StreamContent(file, 1024 * 1024);
-        payload.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        payload.Headers.ContentLength = info.Length;
-        using var upload = await SendAsync(HttpMethod.Put, location.ToString(), payload, ct);
-        await using var stream = await upload.Content.ReadAsStreamAsync(ct);
-        using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-        return ReadItem(json.RootElement);
+        var meter = new TransferMeter(TransferChanged, TransferDirection.Upload, name, info.Length);
+        try
+        {
+            using var meteredFile = new MeteredReadStream(file, meter);
+            using var payload = new StreamContent(meteredFile, 1024 * 1024);
+            payload.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            payload.Headers.ContentLength = info.Length;
+            using var upload = await SendAsync(HttpMethod.Put, location.ToString(), payload, ct);
+            await using var stream = await upload.Content.ReadAsStreamAsync(ct);
+            using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            return ReadItem(json.RootElement);
+        }
+        finally { meter.Finish(); }
     }
 
     private async Task<HttpResponseMessage> StartResumableAsync(string endpoint, HttpMethod method, HttpContent body, long length, CancellationToken ct)
@@ -289,12 +296,23 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         {
             using var response = await SendAsync(HttpMethod.Get,
                 "https://www.googleapis.com/drive/v3/files/" + Param(remoteId) + "?alt=media", null, ct);
-            await using (var remote = await response.Content.ReadAsStreamAsync(ct))
-            await using (var local = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, true))
+            var meter = new TransferMeter(TransferChanged, TransferDirection.Download,
+                Path.GetFileName(destination), response.Content.Headers.ContentLength ?? 0);
+            try
             {
-                await remote.CopyToAsync(local, 1024 * 1024, ct);
+                await using var remote = await response.Content.ReadAsStreamAsync(ct);
+                await using var local = new FileStream(temp, FileMode.Create, FileAccess.Write,
+                    FileShare.None, 1024 * 1024, true);
+                byte[] buffer = new byte[256 * 1024];
+                int count;
+                while ((count = await remote.ReadAsync(buffer, ct)) > 0)
+                {
+                    await local.WriteAsync(buffer.AsMemory(0, count), ct);
+                    meter.Add(count);
+                }
                 await local.FlushAsync(ct);
             }
+            finally { meter.Finish(); }
 
             if (!string.IsNullOrEmpty(remoteMd5))
             {
