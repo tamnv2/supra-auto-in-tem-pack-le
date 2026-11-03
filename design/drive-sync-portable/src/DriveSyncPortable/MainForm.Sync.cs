@@ -5,7 +5,6 @@ public sealed partial class MainForm
     private SettingsStore? _config;
     private GoogleDriveApi? _api;
     private SyncEngine? _sync;
-    private readonly List<string> _recent = new();
     private bool _settingUp;
 
     private void InitializeSync()
@@ -14,6 +13,7 @@ public sealed partial class MainForm
         {
             _config = new SettingsStore();
             _api = new GoogleDriveApi(_config);
+            LoadActivityHistory();
             _localPath.Text = string.IsNullOrWhiteSpace(_config.Data.LocalFolder)
                 ? "Chưa chọn thư mục" : _config.Data.LocalFolder;
             _remotePath.Text = string.IsNullOrWhiteSpace(_config.Data.RemoteFolderId)
@@ -23,10 +23,11 @@ public sealed partial class MainForm
                 ? "Google OAuth · Kết nối được lưu an toàn theo user Windows"
                 : "Đăng nhập trên trình duyệt Google · Không nhập mật khẩu vào EXE";
             _login.Text = _api.IsSignedIn ? "Đổi tài khoản" : "Đăng nhập Google";
-            _statusTitle.Text = _api.IsSignedIn ? "Sẵn sàng đồng bộ" : "Chưa kết nối Google";
-            _statusSubtitle.Text = _api.IsSignedIn
-                ? "Chọn hai thư mục hoặc chờ kiểm tra tự động"
-                : "Đăng nhập Google để bắt đầu";
+            ApplySyncStatus(_api.IsSignedIn
+                ? new SyncStatus(SyncState.SetupRequired, "Sẵn sàng kết nối",
+                    "Chọn đủ hai thư mục để tự đồng bộ")
+                : new SyncStatus(SyncState.SetupRequired, "Chưa đăng nhập Google",
+                    "Đăng nhập Gmail để bắt đầu"));
             _privacy.Text = "🔒  OAuth trình duyệt Google · Token mã hóa bằng Windows DPAPI";
             Shown += async (_, _) =>
             {
@@ -37,8 +38,8 @@ public sealed partial class MainForm
         }
         catch (Exception ex)
         {
-            _statusTitle.Text = "Không tải được cấu hình";
-            _statusSubtitle.Text = "Đồng bộ đã bị khóa để bảo vệ dữ liệu";
+            ApplySyncStatus(new SyncStatus(SyncState.NeedsAttention,
+                "Lỗi cấu hình", "Đồng bộ bị khóa để bảo vệ dữ liệu"));
             MessageBox.Show(this, "Không đọc được cấu hình DriveSync, chương trình sẽ không đồng bộ.\n\n" +
                 ex.Message, "DriveSync Portable", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
@@ -183,9 +184,19 @@ public sealed partial class MainForm
         }
         await StopSyncAsync();
         _sync = new SyncEngine(_config, _api);
-        _sync.Status += status => UI(() => SetStatus(status,
-            "Đang theo dõi thư mục · Drive kiểm tra thay đổi tối đa mỗi 60 giây"));
-        _sync.Activity += activity => UI(() => AddActivity(activity));
+        var active = _sync;
+        _sync.StateChanged += state => UI(() =>
+        {
+            if (ReferenceEquals(_sync, active)) ApplySyncStatus(state);
+        });
+        _sync.Progress += transfer => UI(() =>
+        {
+            if (ReferenceEquals(_sync, active)) ApplyTransfer(transfer);
+        });
+        _sync.Activity += activity => UI(() =>
+        {
+            if (ReferenceEquals(_sync, active)) AddActivity(activity);
+        });
         try
         {
             _sync.Start();
@@ -221,37 +232,114 @@ public sealed partial class MainForm
         catch (InvalidOperationException) { }
     }
 
-    private void SetStatus(string status, string subtitle)
+    private void SetStatus(string title, string detail)
     {
-        if (_paused) return;
-        _statusTitle.Text = status;
-        _statusSubtitle.Text = subtitle;
+        SyncState state = title switch
+        {
+            "Đang đăng nhập Google" => SyncState.Connecting,
+            "Đang đồng bộ..." => SyncState.Checking,
+            "Chưa sẵn sàng" or "Chưa bắt đầu" or "Đăng nhập thành công" => SyncState.SetupRequired,
+            "Đăng nhập chưa thành công" => SyncState.AuthenticationError,
+            "Không thể khởi động đồng bộ" => SyncState.NeedsAttention,
+            _ => SyncState.Checking
+        };
+        ApplySyncStatus(new SyncStatus(state, title, detail));
+    }
+
+    private string ActivityPath => Path.Combine(
+        _config?.StorageFolder ?? SettingsStore.BaseFolder, "activity-history.log");
+
+    private void LoadActivityHistory()
+    {
+        try
+        {
+            if (!File.Exists(ActivityPath)) return;
+            foreach (string line in File.ReadLines(ActivityPath).TakeLast(500))
+                if (!string.IsNullOrWhiteSpace(line)) InsertActivityRow(line, persist: false);
+        }
+        catch
+        {
+            // History is optional. It must never prevent actual synchronization.
+        }
     }
 
     private void AddActivity(string activity)
     {
-        string message = DateTime.Now.ToString("HH:mm:ss") + " · " + activity;
-        _recent.Insert(0, message);
-        if (_recent.Count > 100) _recent.RemoveAt(_recent.Count - 1);
-        var rows = _activity.Controls.OfType<Label>()
-            .Where(label => label.Left == 50 && (label.Top == 57 || label.Top == 96 || label.Top == 135))
-            .OrderBy(label => label.Top).ToList();
-        for (int i = 0; i < rows.Count; i++)
-            rows[i].Text = i < _recent.Count ? _recent[i] : "";
+        string line = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss") + " | " + activity
+            .Replace('\r', ' ').Replace('\n', ' ');
+        InsertActivityRow(line, persist: true);
+    }
+
+    private void InsertActivityRow(string line, bool persist)
+    {
+        string[] pair = line.Split(" | ", 2, StringSplitOptions.None);
+        string time = pair.Length == 2 ? pair[0] : DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss");
+        string activity = pair.Length == 2 ? pair[1] : line;
+        string action, outcome, description = activity;
+        if (activity.StartsWith("↑", StringComparison.Ordinal))
+        {
+            action = "Tải lên"; outcome = "Hoàn tất"; description = activity.TrimStart('↑', ' ');
+        }
+        else if (activity.StartsWith("↓", StringComparison.Ordinal))
+        {
+            action = "Tải xuống"; outcome = "Hoàn tất"; description = activity.TrimStart('↓', ' ');
+        }
+        else if (activity.StartsWith("Lỗi:", StringComparison.OrdinalIgnoreCase)
+                 || activity.StartsWith("Chưa đồng bộ được:", StringComparison.OrdinalIgnoreCase))
+        {
+            action = "Lỗi"; outcome = "Cần xử lý";
+        }
+        else if (activity.Contains("xung đột", StringComparison.OrdinalIgnoreCase)
+                 || activity.Contains("xung-dot", StringComparison.OrdinalIgnoreCase))
+        {
+            action = "Xung đột"; outcome = "Đã giữ bản";
+        }
+        else if (activity.Contains("thùng rác", StringComparison.OrdinalIgnoreCase)
+                 || activity.Contains("Recovery", StringComparison.OrdinalIgnoreCase))
+        {
+            action = "Xóa/khôi phục"; outcome = "Đã xử lý";
+        }
+        else
+        {
+            action = "Hệ thống"; outcome = "Thông tin";
+        }
+
+        var item = new ListViewItem(time);
+        item.SubItems.Add(action);
+        item.SubItems.Add(description);
+        item.SubItems.Add(outcome);
+        if (outcome == "Cần xử lý") item.ForeColor = Color.FromArgb(179, 66, 54);
+        _historyList.BeginUpdate();
+        _historyList.Items.Insert(0, item);
+        while (_historyList.Items.Count > 500)
+            _historyList.Items.RemoveAt(_historyList.Items.Count - 1);
+        _historyList.EndUpdate();
+        _activityCount.Text = _historyList.Items.Count + " hoạt động gần đây";
+
+        if (!persist) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ActivityPath)!);
+            File.AppendAllText(ActivityPath, line + Environment.NewLine, System.Text.Encoding.UTF8);
+            if (_historyList.Items.Count == 500 && _historyList.Items.Count % 50 == 0)
+            {
+                // Retain a bounded journal without request or network usage.
+                var file = new FileInfo(ActivityPath);
+                if (file.Length > 512 * 1024)
+                    File.WriteAllLines(ActivityPath, File.ReadLines(ActivityPath).TakeLast(500));
+            }
+        }
+        catch
+        {
+            // History storage errors do not block file syncing.
+        }
     }
 
     private void ShowRecentActivity()
     {
-        using var dialog = new Form {
-            Text = "DriveSync · Hoạt động gần đây", StartPosition = FormStartPosition.CenterParent,
-            ClientSize = new Size(690, 430), MinimumSize = new Size(450, 300)
-        };
-        var contents = new TextBox {
-            Dock = DockStyle.Fill, Multiline = true, ReadOnly = true,
-            ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9),
-            Text = _recent.Count == 0 ? "Chưa có hoạt động đồng bộ." : string.Join(Environment.NewLine, _recent)
-        };
-        dialog.Controls.Add(contents);
-        dialog.ShowDialog(this);
+        // The full-width scrollable history is already visible on the dashboard.
+        _historyList.Focus();
+        if (_historyList.Items.Count > 0)
+            _historyList.EnsureVisible(0);
     }
 }
