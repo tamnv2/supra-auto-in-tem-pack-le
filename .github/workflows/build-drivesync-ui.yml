@@ -1,4 +1,4 @@
-name: Build DriveSync Portable Beta
+name: Build DriveSync Portable
 
 on:
   pull_request:
@@ -48,12 +48,12 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force output/release | Out-Null
-          Compress-Archive -Path 'output/app/*' -DestinationPath 'output/release/DriveSyncPortable-beta-win-x64.zip' -Force
-          $hash = (Get-FileHash 'output/release/DriveSyncPortable-beta-win-x64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  DriveSyncPortable-beta-win-x64.zip" | Set-Content -Path 'output/release/DriveSyncPortable-beta-win-x64.zip.sha256' -Encoding ascii
+          Compress-Archive -Path 'output/app/*' -DestinationPath 'output/release/DriveSyncPortable-v0.3-win-x64.zip' -Force
+          $hash = (Get-FileHash 'output/release/DriveSyncPortable-v0.3-win-x64.zip' -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  DriveSyncPortable-v0.3-win-x64.zip" | Set-Content -Path 'output/release/DriveSyncPortable-v0.3-win-x64.zip.sha256' -Encoding ascii
       - uses: actions/upload-artifact@v4
         with:
-          name: DriveSyncPortable-beta-win-x64
+          name: DriveSyncPortable-v0.3-win-x64
           path: output/release/*
           if-no-files-found: error
           retention-days: 30
