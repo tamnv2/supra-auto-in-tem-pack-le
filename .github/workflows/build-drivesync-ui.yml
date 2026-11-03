@@ -37,7 +37,11 @@ jobs:
         run: |
           $exe = (Resolve-Path output/app/DriveSyncPortable.exe).Path
           $p = Start-Process -FilePath $exe -ArgumentList '--ui-smoke' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "UI_SMOKE_FAILED_$($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) {
+            $diag = Join-Path $env:TEMP 'drivesync-ui-smoke-error.txt'
+            if (Test-Path $diag) { Get-Content $diag }
+            throw "UI_SMOKE_FAILED_$($p.ExitCode)"
+          }
       - name: Offline two-way sync integration smoke (no Google data)
         shell: pwsh
         run: |
