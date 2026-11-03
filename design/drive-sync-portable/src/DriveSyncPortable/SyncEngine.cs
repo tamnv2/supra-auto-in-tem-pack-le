@@ -127,17 +127,29 @@ internal sealed class SyncEngine : IDisposable
                 catch (Exception ex)
                 {
                     SyncState state = ex switch {
-                        HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized
-                            or System.Net.HttpStatusCode.Forbidden } => SyncState.AuthenticationError,
+                        HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized }
+                            => SyncState.AuthenticationError,
+                        HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden }
+                            => SyncState.NeedsAttention,
+                        HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests }
+                            => SyncState.WaitingNetwork,
+                        HttpRequestException { StatusCode: not null }
+                            => SyncState.NeedsAttention,
                         HttpRequestException => SyncState.WaitingNetwork,
                         System.Net.Sockets.SocketException => SyncState.WaitingNetwork,
                         TaskCanceledException => SyncState.WaitingNetwork,
                         _ => SyncState.NeedsAttention
                     };
-                    Report(state,
-                        state == SyncState.AuthenticationError ? "Cần đăng nhập lại"
-                        : state == SyncState.WaitingNetwork ? "Chờ kết nối mạng" : "Có lỗi cần kiểm tra",
-                        "Chưa hoàn tất đồng bộ · Sẽ thử lại khi có kết nối");
+                    string title = ex switch {
+                        HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests }
+                            => "Google tạm giới hạn yêu cầu",
+                        HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden }
+                            => "Cần kiểm tra quyền Google",
+                        _ when state == SyncState.AuthenticationError => "Cần đăng nhập lại",
+                        _ when state == SyncState.WaitingNetwork => "Chờ kết nối mạng",
+                        _ => "Có lỗi cần kiểm tra"
+                    };
+                    Report(state, title, "Chưa hoàn tất đồng bộ · Thử lại sau 60 giây");
                     Log("Lỗi: " + SafeError(ex));
                 }
             }
@@ -220,18 +232,26 @@ internal sealed class SyncEngine : IDisposable
 
             if (!localDirty && !refresh)
             {
-                Report(_conflictNeedsReview ? SyncState.NeedsAttention : SyncState.Synced,
-                    _conflictNeedsReview ? "Có file xung đột" : "Đã đồng bộ",
-                    _conflictNeedsReview ? "Đã giữ hai phiên bản; xem lịch sử để xử lý"
+                bool dirtyDuringCheck = Volatile.Read(ref _dirty) == 1;
+                Report(dirtyDuringCheck ? SyncState.Checking
+                    : _conflictNeedsReview ? SyncState.NeedsAttention : SyncState.Synced,
+                    dirtyDuringCheck ? "Còn thay đổi đang chờ"
+                    : _conflictNeedsReview ? "Có file xung đột" : "Đã đồng bộ",
+                    dirtyDuringCheck ? "Đang nhận thay đổi mới; sắp kiểm tra lại"
+                    : _conflictNeedsReview ? "Đã giữ hai phiên bản; xem lịch sử để xử lý"
                     : "Không có file cần chuyển · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss"));
                 return;
             }
             bool allSucceeded = await ReconcileAsync(ct);
-            Report(allSucceeded && !_conflictNeedsReview ? SyncState.Synced : SyncState.NeedsAttention,
+            bool pending = Volatile.Read(ref _dirty) == 1;
+            Report(!allSucceeded || _conflictNeedsReview ? SyncState.NeedsAttention
+                    : pending ? SyncState.Checking : SyncState.Synced,
                 !allSucceeded ? "Có file chưa đồng bộ"
-                : _conflictNeedsReview ? "Có file xung đột" : "Đã đồng bộ",
+                : _conflictNeedsReview ? "Có file xung đột"
+                : pending ? "Còn thay đổi đang chờ" : "Đã đồng bộ",
                 !allSucceeded ? "Kiểm tra lịch sử để xem lỗi · Tự thử lại sau 60 giây"
                 : _conflictNeedsReview ? "Đã giữ hai phiên bản; xem lịch sử để xử lý"
+                : pending ? "Đang nhận thay đổi mới; sắp đồng bộ tiếp"
                 : "Hoàn tất · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss"));
         }
         finally { _syncLock.Release(); }
