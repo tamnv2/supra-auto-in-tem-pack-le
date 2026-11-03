@@ -43,14 +43,15 @@ public sealed partial class MainForm : Form
     private readonly Label _footer = Theme.Text("DriveSync Portable · Google OAuth · Token bảo vệ bởi Windows",
         0, 0, 820, 20, 8, false, Theme.Muted);
     private readonly Label _folderHeader = Theme.Text("Thư mục đồng bộ hai chiều", 0, 0, 400, 21, 10, true);
-    private readonly Label _privacy = Theme.Text("Đóng cửa sổ bằng X → chạy ngầm. Chỉ nút Thoát mới dừng ứng dụng.",
+    private readonly Label _privacy = Theme.Text("Đóng cửa sổ (X): tiếp tục chạy ngầm · Thoát ứng dụng: xác nhận hai lần.",
         0, 0, 900, 22, 8, false, Theme.Muted);
     private readonly ListView _historyList = new()
     {
         View = View.Details, FullRowSelect = true, MultiSelect = false,
         HideSelection = false, GridLines = false, BorderStyle = BorderStyle.None,
-        HeaderStyle = ColumnHeaderStyle.Nonclickable, Font = new Font("Segoe UI", 9),
-        BackColor = Theme.White, ForeColor = Theme.Ink
+        HeaderStyle = ColumnHeaderStyle.Nonclickable, Font = new Font("Segoe UI", 9.5f),
+        BackColor = Theme.White, ForeColor = Theme.Ink,
+        ShowItemToolTips = true
     };
     private readonly Label _activityCount = Theme.Text("0 hoạt động", 0, 11, 180, 22, 8, false, Theme.Muted);
     private bool _paused;
@@ -113,10 +114,16 @@ public sealed partial class MainForm : Form
     private Panel MakeHeader()
     {
         var top = new Panel { Dock = DockStyle.Top, Height = 63, BackColor = Theme.White };
-        var logo = Theme.Text("↻", 18, 12, 39, 39, 23, true, Theme.Blue);
-        logo.BackColor = Theme.PaleBlue;
-        logo.TextAlign = ContentAlignment.MiddleCenter;
-        top.Controls.Add(logo);
+        // Use a real icon image: Unicode arrows were clipped on machines lacking
+        // compatible Segoe UI glyph metrics.
+        top.Controls.Add(new PictureBox
+        {
+            Image = Icon.ToBitmap(),
+            Location = new Point(18, 13),
+            Size = new Size(38, 38),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Theme.White
+        });
         top.Controls.Add(Theme.Text("DriveSync Portable", 69, 9, 360, 26, 16, true));
         top.Controls.Add(Theme.Text("Google Drive · Windows Desktop", 70, 34, 350, 17, 8, false, Theme.Muted));
         var version = Theme.Text("v0.3 · ĐỒNG BỘ HAI CHIỀU", 0, 19, 225, 26, 8, true, Theme.Blue);
@@ -176,72 +183,89 @@ public sealed partial class MainForm : Form
         _activityCount.TextAlign = ContentAlignment.MiddleRight;
         _activity.Controls.Add(_activityCount);
 
-        _historyList.Columns.Add("Thời gian", 100);
+        _historyList.Columns.Add("Thời gian", 158);
         _historyList.Columns.Add("Thao tác", 155);
         _historyList.Columns.Add("Tệp / nội dung", 495);
-        _historyList.Columns.Add("Kết quả", 100);
+        _historyList.Columns.Add("Kết quả", 116);
         _activity.Controls.Add(_historyList);
+        _historyList.Resize += (_, _) => _historyList.Invalidate();
     }
 
     private void LayoutCards()
     {
-        if (_viewport.IsDisposed) return;
-        const int x = 15;
-        int w = Math.Max(775, _viewport.ClientSize.Width - 30);
-        int half = (w - 10) / 2;
-        _upSpeed.SetBounds(20, 24, 140, 30);
-        _downSpeed.SetBounds(20, 24, 140, 30);
-        int y = 12;
+        if (_viewport.IsDisposed || _viewport.ClientSize.Width < 1) return;
+        // Keep the entire dashboard in one visually coherent column on ultra-wide
+        // monitors. Every section shares precisely the same left/right alignment.
+        const int outerMargin = 18;
+        const int gap = 12;
+        int availableWidth = Math.Max(0, _viewport.ClientSize.Width);
+        int w = Math.Max(775, Math.Min(1328, availableWidth - outerMargin * 2));
+        int x = Math.Max(outerMargin, (availableWidth - w) / 2);
+        int half = (w - gap) / 2;
+        int y = 14;
 
-        _hero.SetBounds(x, y, w, 77);
-        _pause.SetBounds(w - 140, 22, 125, 34);
-        _statusTitle.Width = Math.Max(320, w - 270);
-        _statusSubtitle.Width = Math.Max(320, w - 270);
+        _viewport.SuspendLayout();
+        try
+        {
+            _hero.SetBounds(x, y, w, 84);
+            _pause.SetBounds(w - 151, 24, 133, 36);
+            _statusSymbol.SetBounds(20, 20, 43, 43);
+            _statusTitle.SetBounds(76, 14, Math.Max(210, w - 252), 29);
+            _statusSubtitle.SetBounds(76, 44, Math.Max(210, w - 252), 24);
 
-        y += 85;
-        _upCard.SetBounds(x, y, half, 63);
-        _downCard.SetBounds(x + half + 10, y, w - half - 10, 63);
-        _upInfo.SetBounds(174, 26, Math.Max(100, half - 190), 26);
-        _downInfo.SetBounds(174, 26, Math.Max(100, w - half - 200), 26);
+            y += 84 + gap;
+            _upCard.SetBounds(x, y, half, 76);
+            _downCard.SetBounds(x + half + gap, y, w - half - gap, 76);
+            _upSpeed.SetBounds(20, 32, 155, 33);
+            _downSpeed.SetBounds(20, 32, 155, 33);
+            _upInfo.SetBounds(185, 35, Math.Max(90, half - 204), 25);
+            _downInfo.SetBounds(185, 35, Math.Max(90, w - half - gap - 204), 25);
 
-        y += 71;
-        _account.SetBounds(x, y, w, 78);
-        _accountName.Width = Math.Max(340, w - 270);
-        _accountDesc.Width = Math.Max(340, w - 270);
-        _login.SetBounds(w - 163, 30, 149, 34);
+            y += 76 + gap;
+            _account.SetBounds(x, y, w, 84);
+            _accountName.SetBounds(70, 29, Math.Max(180, w - 280), 22);
+            _accountDesc.SetBounds(70, 52, Math.Max(180, w - 280), 20);
+            _login.SetBounds(w - 166, 32, 147, 35);
 
-        y += 86;
-        _folderHeader.SetBounds(x, y, w, 22);
-        y += 25;
-        _local.SetBounds(x, y, half, 68);
-        _remote.SetBounds(x + half + 10, y, w - half - 10, 68);
-        _localPath.Width = Math.Max(130, half - 162);
-        _remotePath.Width = Math.Max(130, w - half - 170);
-        _localChoose.SetBounds(half - 138, 28, 126, 31);
-        _remoteChoose.SetBounds(w - half - 148, 28, 126, 31);
+            y += 84 + gap;
+            _folderHeader.SetBounds(x + 2, y, w - 4, 23);
+            y += 28;
+            _local.SetBounds(x, y, half, 80);
+            _remote.SetBounds(x + half + gap, y, w - half - gap, 80);
+            _localPath.SetBounds(18, 38, Math.Max(140, half - 190), 26);
+            _remotePath.SetBounds(18, 38, Math.Max(140, w - half - gap - 190), 26);
+            _localChoose.SetBounds(half - 148, 35, 129, 34);
+            _remoteChoose.SetBounds(w - half - gap - 148, 35, 129, 34);
 
-        y += 76;
-        _settings.SetBounds(x, y, w, 72);
-        _startup.Location = new Point(228, 36);
-        _background.SetBounds(w - 452, 29, 136, 34);
-        _togglePause.SetBounds(w - 309, 29, 127, 34);
-        _exitButton.SetBounds(w - 174, 29, 158, 34);
+            y += 80 + gap;
+            _settings.SetBounds(x, y, w, 78);
+            _startup.Location = new Point(246, 40);
+            _background.SetBounds(w - 468, 33, 142, 35);
+            _togglePause.SetBounds(w - 316, 33, 131, 35);
+            _exitButton.SetBounds(w - 174, 33, 154, 35);
 
-        y += 80;
-        int historyHeight = Math.Max(240, _viewport.ClientSize.Height - y - 68);
-        _activity.SetBounds(x, y, w, historyHeight);
-        _activityCount.SetBounds(w - 195, 11, 175, 22);
-        _historyList.SetBounds(12, 41, w - 24, historyHeight - 53);
-        int available = Math.Max(600, _historyList.Width - SystemInformation.VerticalScrollBarWidth - 6);
-        _historyList.Columns[0].Width = 95;
-        _historyList.Columns[1].Width = 144;
-        _historyList.Columns[3].Width = 98;
-        _historyList.Columns[2].Width = Math.Max(220, available - 337);
+            y += 78 + gap;
+            int wantedHistory = 255 + Math.Max(0, _historyList.Items.Count - 7) * 23;
+            int roomForHistory = Math.Max(252, _viewport.ClientSize.Height - y - 51);
+            int historyHeight = Math.Max(252, Math.Min(440, Math.Min(wantedHistory, roomForHistory)));
+            _activity.SetBounds(x, y, w, historyHeight);
+            _activityCount.SetBounds(w - 196, 13, 176, 21);
+            _historyList.SetBounds(17, 45, w - 34, historyHeight - 60);
+            int tableWidth = Math.Max(630, _historyList.Width - SystemInformation.VerticalScrollBarWidth - 6);
+            _historyList.Columns[0].Width = 158; // dd/MM/yyyy HH:mm:ss must be visible
+            _historyList.Columns[1].Width = 146;
+            _historyList.Columns[3].Width = 116;
+            _historyList.Columns[2].Width = Math.Max(210, tableWidth - 420);
 
-        y += historyHeight + 7;
-        _privacy.SetBounds(x + 4, y, w - 8, 19);
-        _footer.SetBounds(x + 4, y + 20, w - 8, 19);
-        _viewport.AutoScrollMinSize = new Size(w + 30, y + 45);
+            y += historyHeight + 11;
+            _privacy.SetBounds(x + 2, y, w - 4, 21);
+            _footer.Visible = false; // Remove duplicate tiny footer text.
+            _viewport.AutoScrollMinSize = new Size(w + outerMargin * 2, y + 35);
+        }
+        finally
+        {
+            _viewport.ResumeLayout(true);
+        }
     }
 
     private void TogglePause()
@@ -285,7 +309,6 @@ public sealed partial class MainForm : Form
                 accent = Theme.Blue; background = Theme.PaleBlue; symbol = "○"; break;
         }
         _hero.FillColor = background;
-        _hero.Invalidate();
         _statusSymbol.Text = symbol;
         _statusSymbol.ForeColor = accent;
         _statusSymbol.BackColor = background;
