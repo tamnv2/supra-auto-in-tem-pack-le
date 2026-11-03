@@ -15,6 +15,7 @@ internal sealed class SyncEngine : IDisposable
     private Dictionary<string, DriveItem>? _remoteFiles;
     private Dictionary<string, string>? _remoteFolders;
     private DateTimeOffset _lastReconcile = DateTimeOffset.MinValue;
+    private bool _conflictNeedsReview;
 
     public event Action<string>? Status;
     public event Action<SyncStatus>? StateChanged;
@@ -52,7 +53,7 @@ internal sealed class SyncEngine : IDisposable
             Progress?.Invoke(progress);
             if (!progress.Completed)
                 Report(progress.Direction == TransferDirection.Upload ? SyncState.Uploading : SyncState.Downloading,
-                    progress.Direction == TransferDirection.Upload ? "Đang tải lên" : "Đang tải xuống",
+                    progress.Direction == TransferDirection.Upload ? "Đang đồng bộ · Tải lên" : "Đang đồng bộ · Tải xuống",
                     progress.FileName + " · " + TransferFormat.Size(progress.BytesTransferred)
                     + " / " + TransferFormat.Size(progress.TotalBytes));
         };
@@ -219,15 +220,19 @@ internal sealed class SyncEngine : IDisposable
 
             if (!localDirty && !refresh)
             {
-                Report(SyncState.Synced, "Đã đồng bộ",
-                    "Không có file cần chuyển · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss"));
+                Report(_conflictNeedsReview ? SyncState.NeedsAttention : SyncState.Synced,
+                    _conflictNeedsReview ? "Có file xung đột" : "Đã đồng bộ",
+                    _conflictNeedsReview ? "Đã giữ hai phiên bản; xem lịch sử để xử lý"
+                    : "Không có file cần chuyển · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss"));
                 return;
             }
             bool allSucceeded = await ReconcileAsync(ct);
-            Report(allSucceeded ? SyncState.Synced : SyncState.NeedsAttention,
-                allSucceeded ? "Đã đồng bộ" : "Có file chưa đồng bộ",
-                allSucceeded ? "Hoàn tất · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss")
-                             : "Kiểm tra lịch sử để xem lỗi · Tự thử lại sau 60 giây");
+            Report(allSucceeded && !_conflictNeedsReview ? SyncState.Synced : SyncState.NeedsAttention,
+                !allSucceeded ? "Có file chưa đồng bộ"
+                : _conflictNeedsReview ? "Có file xung đột" : "Đã đồng bộ",
+                !allSucceeded ? "Kiểm tra lịch sử để xem lỗi · Tự thử lại sau 60 giây"
+                : _conflictNeedsReview ? "Đã giữ hai phiên bản; xem lịch sử để xử lý"
+                : "Hoàn tất · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss"));
         }
         finally { _syncLock.Release(); }
     }
@@ -354,6 +359,8 @@ internal sealed class SyncEngine : IDisposable
     {
         bool allSucceeded = true;
         var local = ReadLocalFiles();
+        _conflictNeedsReview = local.Keys.Any(p =>
+            p.Contains("(xung-dot-laptop-", StringComparison.OrdinalIgnoreCase));
         var remote = _remoteFiles!;
         // Remote folders are created even if empty, without blindly removing local folders.
         foreach (var folder in _remoteFolders!.Keys.OrderBy(p => p.Count(c => c == '/')))
@@ -408,6 +415,7 @@ internal sealed class SyncEngine : IDisposable
                 }
                 string conflict = MakeConflictPath(localFile!);
                 File.Copy(localFile!, conflict, false);
+                _conflictNeedsReview = true;
                 Log("Giữ bản laptop xung đột: " + Path.GetFileName(conflict));
                 string expected = LocalVersion(localFile!);
                 await _drive.DownloadAsync(remoteFile!.Id, localFile!, expected, remoteFile.Md5, ct);
@@ -459,6 +467,7 @@ internal sealed class SyncEngine : IDisposable
         {
             string conflict = MakeConflictPath(localFile!);
             File.Copy(localFile!, conflict, false);
+            _conflictNeedsReview = true;
             Log("Hai phía đều sửa; giữ bản xung đột: " + Path.GetFileName(conflict));
             await DownloadFileAsync(relative, remoteFile!, ct);
         }
@@ -479,7 +488,7 @@ internal sealed class SyncEngine : IDisposable
             throw new IOException("File vẫn đang được ghi; sẽ thử sau.");
 
         string parent = await EnsureRemoteParentAsync(relative, ct);
-        Report(SyncState.Uploading, "Đang tải lên", relative);
+        Report(SyncState.Uploading, "Đang đồng bộ · Tải lên", relative);
         var item = await _drive.UploadAsync(source, relative.Split('/').Last(), parent, remoteId, ct);
         // Commit server ID even if the source changed during upload: never create a duplicate
         // file next time; retain the old source fingerprint so the new edit uploads again.
@@ -505,7 +514,7 @@ internal sealed class SyncEngine : IDisposable
     {
         string target = LocalPath(relative);
         string expected = File.Exists(target) ? LocalVersion(target) : "";
-        Report(SyncState.Downloading, "Đang tải xuống", relative);
+        Report(SyncState.Downloading, "Đang đồng bộ · Tải xuống", relative);
         await _drive.DownloadAsync(item.Id, target, expected, item.Md5, ct);
         SaveRecord(relative, item, target);
         Log("↓ Đã tải về: " + relative);
