@@ -21,7 +21,8 @@ internal static class Program
                 var all = EnumerateControls(app).ToArray();
                 string[] required = {
                     "Đăng nhập Google", "Chọn thư mục", "Tự khởi động cùng Windows",
-                    "Chạy ngầm", "Hoạt động gần đây", "Tài khoản Google",
+                    "Chạy ngầm", "Lịch sử đồng bộ", "Tài khoản Google",
+                    "Thoát ứng dụng", "TỐC ĐỘ TẢI LÊN", "TỐC ĐỘ TẢI XUỐNG",
                     "GOOGLE DRIVE", "TRÊN LAPTOP"
                 };
                 foreach (var label in required)
@@ -32,6 +33,19 @@ internal static class Program
                     throw new InvalidOperationException("BUTTON_COUNT_INVALID");
                 if (all.OfType<ToggleSwitch>().Count() != 1)
                     throw new InvalidOperationException("STARTUP_TOGGLE_MISSING");
+                var history = all.OfType<ListView>().SingleOrDefault();
+                if (history is null || history.Columns.Count != 4)
+                    throw new InvalidOperationException("SCROLLABLE_HISTORY_MISSING");
+                if (Enum.GetValues<SyncState>().Length < 10)
+                    throw new InvalidOperationException("SYNC_STATUS_SET_INCOMPLETE");
+                var progress = new List<TransferProgress>();
+                var meter = new TransferMeter(progress.Add, TransferDirection.Upload, "sample.txt", 2048);
+                meter.Add(1024);
+                meter.Add(1024);
+                meter.Finish();
+                if (progress.Last().BytesTransferred != 2048 ||
+                    !progress.Last().Completed || TransferFormat.Speed(1024).Length == 0)
+                    throw new InvalidOperationException("TRANSFER_METER_INCORRECT");
 
                 Console.WriteLine("UI_SMOKE_PASS");
                 return 0;
