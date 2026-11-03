@@ -6,6 +6,7 @@ namespace DriveSyncPortable;
 internal sealed class FakeDrive : ICloudDriveApi
 {
     public bool IsSignedIn => true;
+    public Action<TransferProgress>? TransferChanged { get; set; }
     private sealed class Node
     {
         public string Id = "";
