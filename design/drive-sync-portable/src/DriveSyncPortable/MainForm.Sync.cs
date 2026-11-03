@@ -256,6 +256,7 @@ public sealed partial class MainForm
             if (!File.Exists(ActivityPath)) return;
             foreach (string line in File.ReadLines(ActivityPath).TakeLast(500))
                 if (!string.IsNullOrWhiteSpace(line)) InsertActivityRow(line, persist: false);
+            LayoutCards();
         }
         catch
         {
@@ -308,6 +309,7 @@ public sealed partial class MainForm
         item.SubItems.Add(action);
         item.SubItems.Add(description);
         item.SubItems.Add(outcome);
+        item.ToolTipText = activity;
         if (outcome == "Cần xử lý") item.ForeColor = Color.FromArgb(179, 66, 54);
         _historyList.BeginUpdate();
         _historyList.Items.Insert(0, item);
@@ -315,6 +317,7 @@ public sealed partial class MainForm
             _historyList.Items.RemoveAt(_historyList.Items.Count - 1);
         _historyList.EndUpdate();
         _activityCount.Text = _historyList.Items.Count + " hoạt động gần đây";
+        if (persist && _historyList.Items.Count < 20) LayoutCards();
 
         if (!persist) return;
         try
