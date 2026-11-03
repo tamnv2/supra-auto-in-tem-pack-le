@@ -17,8 +17,11 @@ internal static class LayoutAudit
                     StartPosition = FormStartPosition.Manual,
                     Location = new Point(0, 0)
                 };
-                window.CreateControl();
+                window.Show();
+                Application.DoEvents();
                 window.PerformLayout();
+                window.Refresh();
+                Application.DoEvents();
 
                 var cards = GetDescendants(window).OfType<RoundedPanel>().ToArray();
                 if (cards.Length < 8)
