@@ -41,6 +41,18 @@ internal static class LayoutAudit
                         if (label.Right > card.ClientSize.Width - 4 || label.Bottom > card.ClientSize.Height - 3)
                             throw new InvalidOperationException("Clipped card content: " + label.Text);
                     }
+                    var inputs = card.Controls.Cast<Control>()
+                        .Where(x => x is RoundedButton or ToggleSwitch).ToArray();
+                    for (int a = 0; a < inputs.Length; a++)
+                    {
+                        if (inputs[a].Right > card.ClientSize.Width - 3 ||
+                            inputs[a].Bottom > card.ClientSize.Height - 3)
+                            throw new InvalidOperationException("Clipped input control: " + inputs[a].Text);
+                        for (int b = a + 1; b < inputs.Length; b++)
+                            if (inputs[a].Bounds.IntersectsWith(inputs[b].Bounds))
+                                throw new InvalidOperationException("Overlapping inputs: "
+                                    + inputs[a].Text + " / " + inputs[b].Text);
+                    }
                 }
                 for (int i = 0; i < cards.Length; i++)
                 {
