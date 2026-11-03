@@ -17,6 +17,8 @@ internal sealed class SyncEngine : IDisposable
     private DateTimeOffset _lastReconcile = DateTimeOffset.MinValue;
 
     public event Action<string>? Status;
+    public event Action<SyncStatus>? StateChanged;
+    public event Action<TransferProgress>? Progress;
     public event Action<string>? Activity;
     public bool IsRunning => _loop is { IsCompleted: false };
     public bool Paused { get; private set; }
@@ -27,7 +29,11 @@ internal sealed class SyncEngine : IDisposable
         _drive = api;
     }
 
-    private void Report(string message) => Status?.Invoke(message);
+    private void Report(SyncState state, string title, string detail)
+    {
+        Status?.Invoke(title);
+        StateChanged?.Invoke(new SyncStatus(state, title, detail));
+    }
     private void Log(string message) => Activity?.Invoke(message);
 
     public void Start()
@@ -41,6 +47,15 @@ internal sealed class SyncEngine : IDisposable
             throw new InvalidOperationException("Chưa đăng nhập tài khoản Google.");
 
         _cancel = new CancellationTokenSource();
+        _drive.TransferChanged = progress =>
+        {
+            Progress?.Invoke(progress);
+            if (!progress.Completed)
+                Report(progress.Direction == TransferDirection.Upload ? SyncState.Uploading : SyncState.Downloading,
+                    progress.Direction == TransferDirection.Upload ? "Đang tải lên" : "Đang tải xuống",
+                    progress.FileName + " · " + TransferFormat.Size(progress.BytesTransferred)
+                    + " / " + TransferFormat.Size(progress.TotalBytes));
+        };
         Paused = false;
         Interlocked.Exchange(ref _dirty, 1);
         _watcher = new FileSystemWatcher(_store.Data.LocalFolder)
@@ -70,7 +85,10 @@ internal sealed class SyncEngine : IDisposable
     {
         Paused = pause;
         if (!pause) Signal();
-        Report(pause ? "Đã tạm dừng" : "Đang theo dõi file");
+        Report(pause ? SyncState.Paused : SyncState.Checking,
+            pause ? "Đã tạm dừng" : "Đang kiểm tra",
+            pause ? "Không chuyển tệp; các thay đổi sẽ được xử lý khi tiếp tục"
+                  : "Đang kiểm tra thay đổi mới");
     }
 
     private void Signal()
@@ -88,6 +106,7 @@ internal sealed class SyncEngine : IDisposable
         }
         _watcher?.Dispose();
         _watcher = null;
+        _drive.TransferChanged = null;
         _cancel?.Dispose();
         _cancel = null;
         _loop = null;
@@ -106,7 +125,18 @@ internal sealed class SyncEngine : IDisposable
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
                 catch (Exception ex)
                 {
-                    Report("Lỗi đồng bộ — đang chờ thử lại");
+                    SyncState state = ex switch {
+                        HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized
+                            or System.Net.HttpStatusCode.Forbidden } => SyncState.AuthenticationError,
+                        HttpRequestException => SyncState.WaitingNetwork,
+                        System.Net.Sockets.SocketException => SyncState.WaitingNetwork,
+                        TaskCanceledException => SyncState.WaitingNetwork,
+                        _ => SyncState.NeedsAttention
+                    };
+                    Report(state,
+                        state == SyncState.AuthenticationError ? "Cần đăng nhập lại"
+                        : state == SyncState.WaitingNetwork ? "Chờ kết nối mạng" : "Có lỗi cần kiểm tra",
+                        "Chưa hoàn tất đồng bộ · Sẽ thử lại khi có kết nối");
                     Log("Lỗi: " + SafeError(ex));
                 }
             }
@@ -136,13 +166,15 @@ internal sealed class SyncEngine : IDisposable
         if (Paused) return;
         if (!Directory.Exists(_store.Data.LocalFolder))
         {
-            Report("Thư mục laptop không tồn tại — đồng bộ tạm dừng");
+            Report(SyncState.FolderUnavailable, "Không thấy thư mục laptop",
+                "Kiểm tra ổ đĩa hoặc thư mục đã chọn · Không tự xóa file Drive");
             return;
         }
         await _syncLock.WaitAsync(ct);
         try
         {
-            Report("Đang kiểm tra thay đổi...");
+            Report(SyncState.Checking, "Đang kiểm tra thay đổi",
+                "Đối chiếu Google Drive và thư mục trên máy");
             bool localDirty = Interlocked.Exchange(ref _dirty, 0) == 1;
             bool refresh = _remoteFiles is null
                         || _remoteFolders is null
@@ -187,12 +219,15 @@ internal sealed class SyncEngine : IDisposable
 
             if (!localDirty && !refresh)
             {
-                Report("Đã đồng bộ · Không có thay đổi");
+                Report(SyncState.Synced, "Đã đồng bộ",
+                    "Không có file cần chuyển · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss"));
                 return;
             }
             bool allSucceeded = await ReconcileAsync(ct);
-            Report(allSucceeded ? "Đã đồng bộ · Đang theo dõi thay đổi"
-                                : "Còn file chưa đồng bộ · Tự thử lại sau 60 giây");
+            Report(allSucceeded ? SyncState.Synced : SyncState.NeedsAttention,
+                allSucceeded ? "Đã đồng bộ" : "Có file chưa đồng bộ",
+                allSucceeded ? "Hoàn tất · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss")
+                             : "Kiểm tra lịch sử để xem lỗi · Tự thử lại sau 60 giây");
         }
         finally { _syncLock.Release(); }
     }
@@ -444,6 +479,7 @@ internal sealed class SyncEngine : IDisposable
             throw new IOException("File vẫn đang được ghi; sẽ thử sau.");
 
         string parent = await EnsureRemoteParentAsync(relative, ct);
+        Report(SyncState.Uploading, "Đang tải lên", relative);
         var item = await _drive.UploadAsync(source, relative.Split('/').Last(), parent, remoteId, ct);
         // Commit server ID even if the source changed during upload: never create a duplicate
         // file next time; retain the old source fingerprint so the new edit uploads again.
@@ -469,6 +505,7 @@ internal sealed class SyncEngine : IDisposable
     {
         string target = LocalPath(relative);
         string expected = File.Exists(target) ? LocalVersion(target) : "";
+        Report(SyncState.Downloading, "Đang tải xuống", relative);
         await _drive.DownloadAsync(item.Id, target, expected, item.Md5, ct);
         SaveRecord(relative, item, target);
         Log("↓ Đã tải về: " + relative);
