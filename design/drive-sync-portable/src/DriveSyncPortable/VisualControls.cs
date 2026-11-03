@@ -47,27 +47,92 @@ internal static class Theme
 
 internal sealed class RoundedPanel : Panel
 {
-    public Color FillColor { get; set; } = Theme.White;
-    public Color StrokeColor { get; set; } = Theme.Line;
-    public int CornerRadius { get; set; } = 13;
+    private Color _fillColor = Theme.White;
+    private Color _strokeColor = Theme.Line;
+    private int _cornerRadius = 12;
+
+    public Color FillColor
+    {
+        get => _fillColor;
+        set
+        {
+            if (_fillColor == value) return;
+            var previous = _fillColor;
+            _fillColor = value;
+            BackColor = value;
+            foreach (Control child in Controls)
+            {
+                // An opaque matching background prevents WinForms pseudo-transparent labels
+                // from repainting the *entire rounded parent* at an offset (visible white
+                // notches and broken borders on maximized/DPI-scaled windows).
+                if (child is Label label && label.BackColor == previous)
+                    label.BackColor = value;
+            }
+            Invalidate(true);
+        }
+    }
+
+    public Color StrokeColor
+    {
+        get => _strokeColor;
+        set { _strokeColor = value; Invalidate(); }
+    }
+
+    public int CornerRadius
+    {
+        get => _cornerRadius;
+        set { _cornerRadius = Math.Max(0, value); UpdateRoundedRegion(); Invalidate(); }
+    }
 
     public RoundedPanel()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint |
                  ControlStyles.UserPaint |
-                 ControlStyles.OptimizedDoubleBuffer, true);
+                 ControlStyles.OptimizedDoubleBuffer |
+                 ControlStyles.ResizeRedraw, true);
+        BackColor = _fillColor;
         Padding = new Padding(0);
+    }
+
+    protected override void OnControlAdded(ControlEventArgs e)
+    {
+        base.OnControlAdded(e);
+        if (e.Control is Label label && label.BackColor == Color.Transparent)
+            label.BackColor = FillColor;
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        UpdateRoundedRegion();
+        Invalidate(true);
+    }
+
+    private void UpdateRoundedRegion()
+    {
+        if (Width < 2 || Height < 2) return;
+        using var outline = Theme.Rounded(new Rectangle(0, 0, Width, Height), CornerRadius);
+        var replacement = new Region(outline);
+        Region? old = Region;
+        Region = replacement;
+        old?.Dispose();
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
+        // The region clips the entire control, not just its fill. No parent-color
+        // clearing in the middle of the card; opaque labels reuse BackColor.
+        e.Graphics.Clear(FillColor);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        e.Graphics.Clear(Parent?.BackColor ?? Theme.Page);
-        using var p = Theme.Rounded(new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3)), CornerRadius);
-        using var fill = new SolidBrush(FillColor);
-        using var border = new Pen(StrokeColor, 1);
-        e.Graphics.FillPath(fill, p);
-        e.Graphics.DrawPath(border, p);
+        var rect = new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Max(1, Height - 3));
+        using var path = Theme.Rounded(rect, CornerRadius);
+        using var pen = new Pen(StrokeColor, 1) { Alignment = PenAlignment.Inset };
+        e.Graphics.DrawPath(pen, path);
     }
 }
 
