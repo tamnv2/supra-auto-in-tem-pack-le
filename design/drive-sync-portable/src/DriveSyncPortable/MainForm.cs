@@ -189,6 +189,8 @@ public sealed partial class MainForm : Form
         const int x = 15;
         int w = Math.Max(775, _viewport.ClientSize.Width - 30);
         int half = (w - 10) / 2;
+        _upSpeed.SetBounds(20, 24, 140, 30);
+        _downSpeed.SetBounds(20, 24, 140, 30);
         int y = 12;
 
         _hero.SetBounds(x, y, w, 77);
@@ -331,6 +333,7 @@ public sealed partial class MainForm : Form
     private async Task RequestExitAsync()
     {
         if (_exiting) return;
+        if (!Visible) RestoreFromTray();
         var first = MessageBox.Show(this,
             "Thoát sẽ dừng đồng bộ và đóng ứng dụng.\nCác file chưa xong sẽ xử lý lại khi mở ứng dụng.\n\nAnh muốn tiếp tục?",
             "Xác nhận thoát (1/2)", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
