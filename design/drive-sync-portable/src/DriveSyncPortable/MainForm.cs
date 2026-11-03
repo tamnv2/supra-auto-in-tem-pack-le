@@ -14,7 +14,7 @@ public sealed partial class MainForm : Form
     private readonly RoundedPanel _settings = new();
     private readonly RoundedPanel _activity = new();
 
-    private readonly Label _statusSymbol = Theme.Text("○", 18, 17, 42, 43, 24, true, Theme.Green);
+    private readonly Label _statusSymbol = Theme.Text("●", 18, 17, 43, 43, 18, true, Theme.Green);
     private readonly Label _statusTitle = Theme.Text("Chưa kết nối Google", 69, 11, 550, 30, 15, true);
     private readonly Label _statusSubtitle = Theme.Text("Đăng nhập và chọn thư mục để bắt đầu", 69, 39, 550, 24, 9, false, Theme.Muted);
     private readonly Label _upSpeed = Theme.Text("0 B/s", 20, 23, 290, 30, 16, true, Theme.Blue);
@@ -138,6 +138,7 @@ public sealed partial class MainForm : Form
     private void BuildHero()
     {
         _statusSymbol.BackColor = Color.FromArgb(220, 242, 231);
+        _statusSymbol.AutoEllipsis = false;
         _statusSymbol.TextAlign = ContentAlignment.MiddleCenter;
         _hero.Controls.AddRange(new Control[] { _statusSymbol, _statusTitle, _statusSubtitle, _pause });
     }
@@ -238,13 +239,29 @@ public sealed partial class MainForm : Form
             _remoteChoose.SetBounds(w - half - gap - 148, 35, 129, 34);
 
             y += 80 + gap;
-            _settings.SetBounds(x, y, w, 78);
-            _startup.Location = new Point(298, 40);
-            _background.SetBounds(w - 468, 33, 142, 35);
-            _togglePause.SetBounds(w - 316, 33, 131, 35);
-            _exitButton.SetBounds(w - 174, 33, 154, 35);
+            // At narrow widths the startup toggle and action buttons cannot all
+            // fit side by side. Move actions to their own row rather than allowing
+            // overlapping controls (seen at ~825px Windows window widths).
+            bool compactActions = w < 850;
+            int settingsHeight = compactActions ? 119 : 78;
+            _settings.SetBounds(x, y, w, settingsHeight);
+            _startup.Location = new Point(298, compactActions ? 36 : 40);
+            if (compactActions)
+            {
+                const int actionsWidth = 142 + 12 + 131 + 12 + 154;
+                int actionLeft = Math.Max(20, (w - actionsWidth) / 2);
+                _background.SetBounds(actionLeft, 76, 142, 35);
+                _togglePause.SetBounds(actionLeft + 154, 76, 131, 35);
+                _exitButton.SetBounds(actionLeft + 297, 76, 154, 35);
+            }
+            else
+            {
+                _background.SetBounds(w - 468, 33, 142, 35);
+                _togglePause.SetBounds(w - 316, 33, 131, 35);
+                _exitButton.SetBounds(w - 174, 33, 154, 35);
+            }
 
-            y += 78 + gap;
+            y += settingsHeight + gap;
             int wantedHistory = 255 + Math.Max(0, _historyList.Items.Count - 7) * 23;
             int roomForHistory = Math.Max(252, _viewport.ClientSize.Height - y - 51);
             int historyHeight = Math.Max(252, Math.Min(440, Math.Min(wantedHistory, roomForHistory)));
@@ -306,7 +323,7 @@ public sealed partial class MainForm : Form
                 accent = Color.FromArgb(179, 66, 54);
                 background = Color.FromArgb(255, 239, 236); symbol = "!"; break;
             default:
-                accent = Theme.Blue; background = Theme.PaleBlue; symbol = "○"; break;
+                accent = Theme.Blue; background = Theme.PaleBlue; symbol = "●"; break;
         }
         _hero.FillColor = background;
         _statusSymbol.Text = symbol;
