@@ -7,6 +7,15 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
 
+        if (args.Any(a => string.Equals(a, "--layout-smoke", StringComparison.OrdinalIgnoreCase)))
+        {
+            string output = Path.Combine(Path.GetTempPath(), "DriveSyncLayoutAudit");
+            int index = Array.FindIndex(args, a => string.Equals(a, "--layout-smoke", StringComparison.OrdinalIgnoreCase));
+            if (index >= 0 && index + 1 < args.Length)
+                output = args[index + 1];
+            return LayoutAudit.Run(output);
+        }
+
         if (args.Any(a => string.Equals(a, "--ui-smoke", StringComparison.OrdinalIgnoreCase)))
         {
             try
