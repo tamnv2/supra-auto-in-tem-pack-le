@@ -42,6 +42,20 @@ jobs:
             if (Test-Path $diag) { Get-Content $diag }
             throw "UI_SMOKE_FAILED_$($p.ExitCode)"
           }
+      - name: Verify rounded card layout at 1664, 970 and 825 widths
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force output/layout | Out-Null
+          $exe = (Resolve-Path output/app/DriveSyncPortable.exe).Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--layout-smoke output/layout' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "LAYOUT_SMOKE_FAILED_$($p.ExitCode)" }
+      - name: Upload UI layout previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: DriveSyncPortable-v0.3.1-layout-audit
+          path: output/layout/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Offline two-way sync integration smoke (no Google data)
         shell: pwsh
         run: |
