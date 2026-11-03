@@ -5,87 +5,102 @@ namespace DriveSyncPortable;
 public sealed partial class MainForm : Form
 {
     private readonly Panel _viewport = new() { Dock = DockStyle.Fill, BackColor = Theme.Page, AutoScroll = true };
-    private readonly RoundedPanel _hero = new() { FillColor = Theme.PaleGreen, StrokeColor = Color.FromArgb(214, 236, 229) };
+    private readonly RoundedPanel _hero = new() { FillColor = Theme.PaleGreen, StrokeColor = Theme.Line };
+    private readonly RoundedPanel _upCard = new() { FillColor = Theme.White };
+    private readonly RoundedPanel _downCard = new() { FillColor = Theme.White };
     private readonly RoundedPanel _account = new();
     private readonly RoundedPanel _local = new();
     private readonly RoundedPanel _remote = new();
     private readonly RoundedPanel _settings = new();
     private readonly RoundedPanel _activity = new();
 
-    private readonly Label _statusTitle = Theme.Text("Chưa kết nối Google", 68, 18, 540, 31, 15, true);
-    private readonly Label _statusSubtitle = Theme.Text("Đăng nhập để bắt đầu đồng bộ", 68, 49, 540, 24, 9, false, Theme.Muted);
-    private readonly Label _accountName = Theme.Text("Chưa đăng nhập Google", 70, 42, 480, 24, 10, true);
-    private readonly Label _accountDesc = Theme.Text("OAuth qua trình duyệt mặc định • Không nhập mật khẩu trong ứng dụng", 70, 64, 480, 20, 8, false, Theme.Muted);
-    private readonly Label _localPath = Theme.Text("Documents\\DriveSync", 18, 54, 350, 31, 10, true);
-    private readonly Label _remotePath = Theme.Text("My Drive / DriveSync", 18, 54, 350, 31, 10, true);
-    private readonly RoundedButton _pause = new("⏸  Tạm dừng") { Size = new Size(128, 38) };
+    private readonly Label _statusSymbol = Theme.Text("○", 18, 17, 42, 43, 24, true, Theme.Green);
+    private readonly Label _statusTitle = Theme.Text("Chưa kết nối Google", 69, 11, 550, 30, 15, true);
+    private readonly Label _statusSubtitle = Theme.Text("Đăng nhập và chọn thư mục để bắt đầu", 69, 39, 550, 24, 9, false, Theme.Muted);
+    private readonly Label _upSpeed = Theme.Text("0 B/s", 20, 23, 290, 30, 16, true, Theme.Blue);
+    private readonly Label _downSpeed = Theme.Text("0 B/s", 20, 23, 290, 30, 16, true, Theme.Green);
+    private readonly Label _upInfo = Theme.Text("Chưa có tệp đang tải lên", 175, 28, 270, 24, 8, false, Theme.Muted);
+    private readonly Label _downInfo = Theme.Text("Chưa có tệp đang tải xuống", 175, 28, 270, 24, 8, false, Theme.Muted);
+
+    private readonly Label _accountName = Theme.Text("Chưa đăng nhập Google", 68, 30, 510, 24, 10, true);
+    private readonly Label _accountDesc = Theme.Text("Đăng nhập Google qua trình duyệt mặc định", 68, 50, 510, 19, 8, false, Theme.Muted);
+    private readonly Label _localPath = Theme.Text("Chưa chọn thư mục", 16, 26, 350, 26, 9, true);
+    private readonly Label _remotePath = Theme.Text("Chưa chọn thư mục", 16, 26, 350, 26, 9, true);
+
+    private readonly RoundedButton _pause = new("⏸  Tạm dừng") { Size = new Size(120, 36) };
     private readonly RoundedButton _login = new("Đăng nhập Google")
-        { Size = new Size(155, 38), FillColor = Theme.PaleBlue, TextColor = Theme.Blue, Outlined = false };
-    private readonly RoundedButton _localChoose = new("Chọn thư mục") { Size = new Size(200, 36) };
-    private readonly RoundedButton _remoteChoose = new("Chọn thư mục") { Size = new Size(200, 36) };
+        { Size = new Size(149, 34), FillColor = Theme.PaleBlue, TextColor = Theme.Blue, Outlined = false };
+    private readonly RoundedButton _localChoose = new("Chọn thư mục") { Size = new Size(125, 33) };
+    private readonly RoundedButton _remoteChoose = new("Chọn thư mục") { Size = new Size(125, 33) };
     private readonly RoundedButton _background = new("▣  Chạy ngầm")
-        { FillColor = Theme.Blue, TextColor = Theme.White, Outlined = false, Size = new Size(200, 40) };
-    private readonly RoundedButton _togglePause = new("⏸  Tạm dừng") { Size = new Size(130, 40) };
+        { FillColor = Theme.Blue, TextColor = Theme.White, Outlined = false, Size = new Size(138, 36) };
+    private readonly RoundedButton _togglePause = new("⏸  Tạm dừng") { Size = new Size(125, 36) };
+    private readonly RoundedButton _exitButton = new("⏻  Thoát ứng dụng")
+        { FillColor = Color.FromArgb(255, 243, 240), TextColor = Color.FromArgb(159, 58, 48),
+          Outlined = false, Size = new Size(152, 36) };
     private readonly ToggleSwitch _startup = new();
     private readonly NotifyIcon _tray;
-    private readonly Label _footer = Theme.Text("DriveSync Portable · Đồng bộ tự động · Không yêu cầu Admin",
-        0, 0, 810, 35, 8, false, Theme.Muted);
-    private readonly Label _folderHeader = Theme.Text("Thư mục đồng bộ", 0, 0, 400, 28, 10, true);
-    private readonly Label _folderArrow = Theme.Text("⇆  Đồng bộ tự động hai chiều", 0, 0, 600, 25, 9, true, Theme.Green);
-    private readonly Label _privacy = Theme.Text("🔒  Đăng nhập qua Google OAuth · Token được bảo vệ theo tài khoản Windows ở bản hoàn chỉnh",
-        0, 0, 900, 23, 8, false, Theme.Muted);
+    private readonly Label _footer = Theme.Text("DriveSync Portable · Google OAuth · Token bảo vệ bởi Windows",
+        0, 0, 820, 20, 8, false, Theme.Muted);
+    private readonly Label _folderHeader = Theme.Text("Thư mục đồng bộ hai chiều", 0, 0, 400, 21, 10, true);
+    private readonly Label _privacy = Theme.Text("Đóng cửa sổ bằng X → chạy ngầm. Chỉ nút Thoát mới dừng ứng dụng.",
+        0, 0, 900, 22, 8, false, Theme.Muted);
+    private readonly ListView _historyList = new()
+    {
+        View = View.Details, FullRowSelect = true, MultiSelect = false,
+        HideSelection = false, GridLines = false, BorderStyle = BorderStyle.None,
+        HeaderStyle = ColumnHeaderStyle.Nonclickable, Font = new Font("Segoe UI", 9),
+        BackColor = Theme.White, ForeColor = Theme.Ink
+    };
+    private readonly Label _activityCount = Theme.Text("0 hoạt động", 0, 11, 180, 22, 8, false, Theme.Muted);
     private bool _paused;
     private bool _exitRequested;
-    private bool _backgroundMode;
+    private bool _exiting;
+    private bool _trayTipShown;
     private bool _updatingStartup;
+    private readonly List<string> _activityHistory = new();
 
     public MainForm()
     {
         Text = "DriveSync Portable — Đồng bộ Google Drive";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(920, 836);
-        MinimumSize = new Size(805, 690);
+        ClientSize = new Size(970, 838);
+        MinimumSize = new Size(825, 660);
         BackColor = Theme.Page;
         Font = new Font("Segoe UI", 9);
         Icon = AppIcon.Create();
         AutoScaleMode = AutoScaleMode.Dpi;
 
-        _tray = new NotifyIcon
-        {
-            Icon = Icon,
-            Text = "DriveSync Portable",
-            Visible = false
-        };
-        var menu = new ContextMenuStrip();
-        menu.Items.Add("Mở DriveSync", null, (_, _) => RestoreFromTray());
-        menu.Items.Add("Tạm dừng / Tiếp tục (mô phỏng)", null, (_, _) => TogglePause());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Thoát", null, (_, _) => ExitApplication());
-        _tray.ContextMenuStrip = menu;
+        _tray = new NotifyIcon { Icon = Icon, Text = "DriveSync Portable", Visible = false };
+        var trayMenu = new ContextMenuStrip();
+        trayMenu.Items.Add("Mở DriveSync", null, (_, _) => RestoreFromTray());
+        trayMenu.Items.Add("Tạm dừng / Tiếp tục", null, (_, _) => TogglePause());
+        trayMenu.Items.Add(new ToolStripSeparator());
+        trayMenu.Items.Add("Thoát ứng dụng (xác nhận 2 lần)", null, async (_, _) => await RequestExitAsync());
+        _tray.ContextMenuStrip = trayMenu;
         _tray.DoubleClick += (_, _) => RestoreFromTray();
 
-        var header = MakeHeader();
         Controls.Add(_viewport);
-        Controls.Add(header);
-
-        _viewport.Controls.AddRange(new Control[]
-        {
-            _hero, _account, _folderHeader, _local, _remote, _folderArrow,
+        Controls.Add(MakeHeader());
+        _viewport.Controls.AddRange(new Control[] {
+            _hero, _upCard, _downCard, _account, _folderHeader, _local, _remote,
             _settings, _activity, _privacy, _footer
         });
 
         BuildHero();
+        BuildSpeedCards();
         BuildAccount();
-        BuildFolderCards();
+        BuildFolders();
         BuildSettings();
-        BuildActivity();
+        BuildHistory();
 
         _pause.Click += (_, _) => TogglePause();
         _togglePause.Click += (_, _) => TogglePause();
         _login.Click += async (_, _) => await SignInGoogleAsync();
-        _remoteChoose.Click += async (_, _) => await ChooseRemoteFolderAsync();
         _localChoose.Click += async (_, _) => await ChooseLocalFolderAsync();
+        _remoteChoose.Click += async (_, _) => await ChooseRemoteFolderAsync();
         _background.Click += (_, _) => HideToTray();
+        _exitButton.Click += async (_, _) => await RequestExitAsync();
         _startup.CheckedChanged += (_, _) => ChangeStartup();
 
         _startup.Checked = ReadStartup();
@@ -97,133 +112,134 @@ public sealed partial class MainForm : Form
 
     private Panel MakeHeader()
     {
-        var top = new Panel { Dock = DockStyle.Top, Height = 82, BackColor = Theme.White };
-        var brand = Theme.Text("↻", 26, 17, 47, 47, 24, true, Theme.Blue);
-        brand.BackColor = Theme.PaleBlue;
-        brand.TextAlign = ContentAlignment.MiddleCenter;
-        top.Controls.Add(brand);
-        top.Controls.Add(Theme.Text("DriveSync Portable", 86, 18, 350, 28, 17, true));
-        top.Controls.Add(Theme.Text("Google Drive · Windows Desktop", 88, 48, 370, 20, 8, false, Theme.Muted));
-        var trial = Theme.Text("GOOGLE DRIVE · PORTABLE", 0, 27, 235, 27, 8, true, Theme.Blue);
-        trial.TextAlign = ContentAlignment.MiddleCenter;
-        trial.BackColor = Theme.PaleBlue;
-        trial.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        top.Controls.Add(trial);
-        top.Resize += (_, _) => trial.Left = Math.Max(450, top.Width - 265);
+        var top = new Panel { Dock = DockStyle.Top, Height = 63, BackColor = Theme.White };
+        var logo = Theme.Text("↻", 18, 12, 39, 39, 23, true, Theme.Blue);
+        logo.BackColor = Theme.PaleBlue;
+        logo.TextAlign = ContentAlignment.MiddleCenter;
+        top.Controls.Add(logo);
+        top.Controls.Add(Theme.Text("DriveSync Portable", 69, 9, 360, 26, 16, true));
+        top.Controls.Add(Theme.Text("Google Drive · Windows Desktop", 70, 34, 350, 17, 8, false, Theme.Muted));
+        var version = Theme.Text("v0.3 · ĐỒNG BỘ HAI CHIỀU", 0, 19, 225, 26, 8, true, Theme.Blue);
+        version.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        version.TextAlign = ContentAlignment.MiddleCenter;
+        version.BackColor = Theme.PaleBlue;
+        top.Controls.Add(version);
+        top.Resize += (_, _) => version.Left = Math.Max(430, top.Width - 247);
         return top;
     }
 
     private void BuildHero()
     {
-        var circle = Theme.Text("○", 20, 23, 44, 44, 26, true, Theme.Green);
-        circle.BackColor = Color.FromArgb(216, 240, 230);
-        circle.TextAlign = ContentAlignment.MiddleCenter;
-        _hero.Controls.Add(circle);
-        _hero.Controls.Add(_statusTitle);
-        _hero.Controls.Add(_statusSubtitle);
-        _hero.Controls.Add(_pause);
+        _statusSymbol.BackColor = Color.FromArgb(220, 242, 231);
+        _statusSymbol.TextAlign = ContentAlignment.MiddleCenter;
+        _hero.Controls.AddRange(new Control[] { _statusSymbol, _statusTitle, _statusSubtitle, _pause });
+    }
+
+    private void BuildSpeedCards()
+    {
+        _upCard.Controls.Add(Theme.Text("↑  TỐC ĐỘ TẢI LÊN", 17, 6, 250, 18, 8, true, Theme.Muted));
+        _upCard.Controls.Add(_upSpeed);
+        _upCard.Controls.Add(_upInfo);
+        _downCard.Controls.Add(Theme.Text("↓  TỐC ĐỘ TẢI XUỐNG", 17, 6, 250, 18, 8, true, Theme.Muted));
+        _downCard.Controls.Add(_downSpeed);
+        _downCard.Controls.Add(_downInfo);
     }
 
     private void BuildAccount()
     {
-        _account.Controls.Add(Theme.Text("Tài khoản Google", 20, 12, 280, 26, 10, true));
-        var avatar = Theme.Text("G", 20, 48, 40, 40, 17, true, Theme.White);
-        avatar.TextAlign = ContentAlignment.MiddleCenter;
-        avatar.BackColor = Theme.Blue;
-        _account.Controls.Add(avatar);
-        _account.Controls.Add(_accountName);
-        _account.Controls.Add(_accountDesc);
-        _account.Controls.Add(_login);
+        _account.Controls.Add(Theme.Text("TÀI KHOẢN GOOGLE", 18, 5, 280, 20, 8, true, Theme.Muted));
+        var circle = Theme.Text("G", 19, 30, 36, 36, 17, true, Theme.White);
+        circle.BackColor = Theme.Blue;
+        circle.TextAlign = ContentAlignment.MiddleCenter;
+        _account.Controls.AddRange(new Control[] { circle, _accountName, _accountDesc, _login });
     }
 
-    private void BuildFolderCards()
+    private void BuildFolders()
     {
-        _local.Controls.Add(Theme.Text("▣  TRÊN LAPTOP", 18, 13, 270, 24, 8, true, Theme.Muted));
-        _local.Controls.Add(_localPath);
-        _local.Controls.Add(_localChoose);
-        _remote.Controls.Add(Theme.Text("☁  GOOGLE DRIVE", 18, 13, 270, 24, 8, true, Theme.Muted));
-        _remote.Controls.Add(_remotePath);
-        _remote.Controls.Add(_remoteChoose);
-        _folderArrow.TextAlign = ContentAlignment.MiddleCenter;
+        _local.Controls.Add(Theme.Text("▣  TRÊN LAPTOP", 16, 7, 280, 18, 8, true, Theme.Muted));
+        _local.Controls.AddRange(new Control[] { _localPath, _localChoose });
+        _remote.Controls.Add(Theme.Text("☁  TRÊN GOOGLE DRIVE", 16, 7, 280, 18, 8, true, Theme.Muted));
+        _remote.Controls.AddRange(new Control[] { _remotePath, _remoteChoose });
     }
 
     private void BuildSettings()
     {
-        _settings.Controls.Add(Theme.Text("Thiết lập nhanh", 20, 15, 280, 25, 10, true));
-        _settings.Controls.Add(Theme.Text("Tự khởi động cùng Windows", 20, 58, 280, 22, 10, true));
-        _settings.Controls.Add(Theme.Text("Chỉ sử dụng quyền user hiện tại", 20, 81, 280, 18, 8, false, Theme.Muted));
+        _settings.Controls.Add(Theme.Text("Thiết lập nhanh", 18, 8, 195, 24, 10, true));
+        _settings.Controls.Add(Theme.Text("Tự khởi động Windows", 18, 37, 240, 21, 9, true));
         _settings.Controls.Add(_startup);
-        var separator = new Panel { Height = 1, BackColor = Theme.Line };
-        separator.SetBounds(20, 109, 330, 1);
-        separator.Name = "separator";
-        _settings.Controls.Add(separator);
-        _settings.Controls.Add(Theme.Text("Chạy nền trên taskbar", 20, 114, 320, 21, 9, true));
-        _settings.Controls.Add(Theme.Text("Đóng cửa sổ, giao diện vẫn ở khay hệ thống", 20, 136, 350, 18, 8, false, Theme.Muted));
-        _settings.Controls.Add(_background);
-        _settings.Controls.Add(_togglePause);
+        _settings.Controls.AddRange(new Control[] { _background, _togglePause, _exitButton });
     }
 
-    private void BuildActivity()
+    private void BuildHistory()
     {
-        _activity.Controls.Add(Theme.Text("Hoạt động gần đây", 20, 15, 260, 25, 10, true));
-        var demo = Theme.Text("HOẠT ĐỘNG ĐỒNG BỘ", 0, 15, 130, 23, 8, true, Theme.Muted);
-        demo.Name = "demoBadge";
-        demo.TextAlign = ContentAlignment.MiddleRight;
-        _activity.Controls.Add(demo);
-        _activity.Controls.Add(Theme.Text("↑", 20, 57, 28, 24, 13, true, Theme.Green));
-        _activity.Controls.Add(Theme.Text("Chưa có hoạt động", 50, 57, 290, 24, 9));
-        _activity.Controls.Add(Theme.Text("↓", 20, 96, 28, 24, 13, true, Theme.Blue));
-        _activity.Controls.Add(Theme.Text("", 50, 96, 290, 24, 9));
-        _activity.Controls.Add(Theme.Text("✓", 20, 135, 28, 24, 13, true, Theme.Green));
-        _activity.Controls.Add(Theme.Text("", 50, 135, 290, 24, 9));
-        var log = new RoundedButton("Xem nhật ký") { Size = new Size(136, 37), Name = "logButton" };
-        log.Click += (_, _) => ShowRecentActivity();
-        _activity.Controls.Add(log);
+        _activity.Controls.Add(Theme.Text("Lịch sử đồng bộ", 18, 10, 300, 25, 11, true));
+        _activityCount.TextAlign = ContentAlignment.MiddleRight;
+        _activity.Controls.Add(_activityCount);
+
+        _historyList.Columns.Add("Thời gian", 100);
+        _historyList.Columns.Add("Thao tác", 155);
+        _historyList.Columns.Add("Tệp / nội dung", 495);
+        _historyList.Columns.Add("Kết quả", 100);
+        _activity.Controls.Add(_historyList);
     }
 
     private void LayoutCards()
     {
         if (_viewport.IsDisposed) return;
-        int w = Math.Max(740, _viewport.ClientSize.Width - 48);
-        int x = 24;
-        int y = 20;
-        _hero.SetBounds(x, y, w, 96);
-        _pause.SetBounds(w - 150, 29, 128, 38);
-        _statusTitle.Width = Math.Max(250, w - 250);
-        _statusSubtitle.Width = Math.Max(250, w - 250);
-        y += 112;
-        _account.SetBounds(x, y, w, 106);
-        _login.SetBounds(w - 177, 49, 155, 36);
-        _accountName.Width = Math.Max(250, w - 290);
-        _accountDesc.Width = Math.Max(250, w - 290);
-        y += 121;
-        _folderHeader.SetBounds(x + 2, y, w - 4, 29);
-        y += 33;
-        int half = (w - 14) / 2;
-        _local.SetBounds(x, y, half, 141);
-        _remote.SetBounds(x + half + 14, y, w - half - 14, 141);
-        _localPath.Width = Math.Max(200, half - 36);
-        _remotePath.Width = Math.Max(200, w - half - 50);
-        _localChoose.SetBounds(18, 94, half - 36, 34);
-        _remoteChoose.SetBounds(18, 94, w - half - 50, 34);
-        y += 146;
-        _folderArrow.SetBounds(x, y, w, 26);
-        y += 33;
-        _settings.SetBounds(x, y, half, 221);
-        _activity.SetBounds(x + half + 14, y, w - half - 14, 221);
-        _startup.Location = new Point(half - 67, 60);
-        _background.SetBounds(20, 166, Math.Max(120, half - 184), 38);
-        _togglePause.SetBounds(half - 152, 166, 132, 38);
-        if (_settings.Controls["separator"] is Panel sep) sep.Width = half - 40;
-        if (_activity.Controls["demoBadge"] is Label demo)
-            demo.Left = Math.Max(220, _activity.Width - 160);
-        if (_activity.Controls["logButton"] is RoundedButton log)
-            log.SetBounds(20, 174, 134, 33);
-        y += 236;
-        _privacy.SetBounds(x + 4, y, w - 4, 26);
-        y += 31;
-        _footer.SetBounds(x + 4, y, w - 4, 28);
-        _viewport.AutoScrollMinSize = new Size(w + 48, y + 48);
+        const int x = 15;
+        int w = Math.Max(775, _viewport.ClientSize.Width - 30);
+        int half = (w - 10) / 2;
+        int y = 12;
+
+        _hero.SetBounds(x, y, w, 77);
+        _pause.SetBounds(w - 140, 22, 125, 34);
+        _statusTitle.Width = Math.Max(320, w - 270);
+        _statusSubtitle.Width = Math.Max(320, w - 270);
+
+        y += 85;
+        _upCard.SetBounds(x, y, half, 63);
+        _downCard.SetBounds(x + half + 10, y, w - half - 10, 63);
+        _upInfo.SetBounds(174, 26, Math.Max(100, half - 190), 26);
+        _downInfo.SetBounds(174, 26, Math.Max(100, w - half - 200), 26);
+
+        y += 71;
+        _account.SetBounds(x, y, w, 78);
+        _accountName.Width = Math.Max(340, w - 270);
+        _accountDesc.Width = Math.Max(340, w - 270);
+        _login.SetBounds(w - 163, 30, 149, 34);
+
+        y += 86;
+        _folderHeader.SetBounds(x, y, w, 22);
+        y += 25;
+        _local.SetBounds(x, y, half, 68);
+        _remote.SetBounds(x + half + 10, y, w - half - 10, 68);
+        _localPath.Width = Math.Max(130, half - 162);
+        _remotePath.Width = Math.Max(130, w - half - 170);
+        _localChoose.SetBounds(half - 138, 28, 126, 31);
+        _remoteChoose.SetBounds(w - half - 148, 28, 126, 31);
+
+        y += 76;
+        _settings.SetBounds(x, y, w, 72);
+        _startup.Location = new Point(228, 36);
+        _background.SetBounds(w - 452, 29, 136, 34);
+        _togglePause.SetBounds(w - 309, 29, 127, 34);
+        _exitButton.SetBounds(w - 174, 29, 158, 34);
+
+        y += 80;
+        int historyHeight = Math.Max(240, _viewport.ClientSize.Height - y - 68);
+        _activity.SetBounds(x, y, w, historyHeight);
+        _activityCount.SetBounds(w - 195, 11, 175, 22);
+        _historyList.SetBounds(12, 41, w - 24, historyHeight - 53);
+        int available = Math.Max(600, _historyList.Width - SystemInformation.VerticalScrollBarWidth - 6);
+        _historyList.Columns[0].Width = 95;
+        _historyList.Columns[1].Width = 144;
+        _historyList.Columns[3].Width = 98;
+        _historyList.Columns[2].Width = Math.Max(220, available - 337);
+
+        y += historyHeight + 7;
+        _privacy.SetBounds(x + 4, y, w - 8, 19);
+        _footer.SetBounds(x + 4, y + 20, w - 8, 19);
+        _viewport.AutoScrollMinSize = new Size(w + 30, y + 45);
     }
 
     private void TogglePause()
@@ -232,21 +248,77 @@ public sealed partial class MainForm : Form
         _sync?.Pause(_paused);
         _pause.Text = _paused ? "▶  Tiếp tục" : "⏸  Tạm dừng";
         _togglePause.Text = _pause.Text;
-        _statusTitle.Text = _paused ? "Đã tạm dừng" :
-            (_sync?.IsRunning == true ? "Đang theo dõi file" : "Chưa kết nối Google");
-        _statusSubtitle.Text = _paused ? "Các thay đổi sẽ được xử lý khi tiếp tục" :
-            (_sync?.IsRunning == true ? "Tự động đồng bộ hai chiều" : "Chọn tài khoản và thư mục để bắt đầu");
-        _hero.FillColor = _paused ? Color.FromArgb(255, 247, 232) : Theme.PaleGreen;
+        ApplySyncStatus(new SyncStatus(_paused ? SyncState.Paused : SyncState.Checking,
+            _paused ? "Đã tạm dừng" : "Đang kiểm tra",
+            _paused ? "Lượt đang tải có thể hoàn tất; tệp mới sẽ chờ tiếp tục"
+                    : "Đang kiểm tra các thay đổi còn chờ"));
+    }
+
+    private void ApplySyncStatus(SyncStatus status)
+    {
+        if (_paused && status.State != SyncState.Paused && status.State != SyncState.Stopping) return;
+        Color accent;
+        Color background;
+        string symbol;
+        switch (status.State)
+        {
+            case SyncState.Synced:
+                accent = Theme.Green; background = Theme.PaleGreen; symbol = "✓"; break;
+            case SyncState.Uploading:
+                accent = Theme.Blue; background = Theme.PaleBlue; symbol = "↑"; break;
+            case SyncState.Downloading:
+                accent = Theme.Blue; background = Theme.PaleBlue; symbol = "↓"; break;
+            case SyncState.Paused:
+                accent = Color.FromArgb(162, 109, 23);
+                background = Color.FromArgb(255, 247, 230); symbol = "Ⅱ"; break;
+            case SyncState.WaitingNetwork:
+                accent = Color.FromArgb(162, 109, 23);
+                background = Color.FromArgb(255, 247, 230); symbol = "↻"; break;
+            case SyncState.NeedsAttention:
+            case SyncState.AuthenticationError:
+            case SyncState.FolderUnavailable:
+                accent = Color.FromArgb(179, 66, 54);
+                background = Color.FromArgb(255, 239, 236); symbol = "!"; break;
+            default:
+                accent = Theme.Blue; background = Theme.PaleBlue; symbol = "○"; break;
+        }
+        _hero.FillColor = background;
         _hero.Invalidate();
+        _statusSymbol.Text = symbol;
+        _statusSymbol.ForeColor = accent;
+        _statusSymbol.BackColor = background;
+        _statusTitle.Text = status.Title;
+        _statusSubtitle.Text = status.Detail;
+        string trayText = "DriveSync: " + status.Title;
+        _tray.Text = trayText.Length <= 63 ? trayText : trayText[..63];
+    }
+
+    private void ApplyTransfer(TransferProgress value)
+    {
+        Label speed = value.Direction == TransferDirection.Upload ? _upSpeed : _downSpeed;
+        Label info = value.Direction == TransferDirection.Upload ? _upInfo : _downInfo;
+        speed.Text = value.Completed ? "0 B/s" : TransferFormat.Speed(value.BytesPerSecond);
+        if (value.Completed)
+        {
+            info.Text = "Đã kết thúc lượt truyền";
+            return;
+        }
+        string progress = value.TotalBytes > 0
+            ? Math.Min(100, Math.Round(value.BytesTransferred * 100.0 / value.TotalBytes, 0)).ToString("0") + "%"
+            : TransferFormat.Size(value.BytesTransferred);
+        info.Text = value.FileName + " · " + progress;
     }
 
     private void HideToTray()
     {
-        _backgroundMode = true;
         _tray.Visible = true;
         Hide();
-        _tray.ShowBalloonTip(1700, "DriveSync Portable — Bản UI",
-            "Đã chạy ngầm. Tệp thay đổi sẽ tự đồng bộ khi có kết nối.", ToolTipIcon.Info);
+        if (!_trayTipShown)
+        {
+            _tray.ShowBalloonTip(1600, "DriveSync đang chạy ngầm",
+                "Nhấn đúp biểu tượng để mở lại. Thoát hẳn tại nút Thoát ứng dụng.", ToolTipIcon.Info);
+            _trayTipShown = true;
+        }
     }
 
     private void RestoreFromTray()
@@ -256,10 +328,37 @@ public sealed partial class MainForm : Form
         Activate();
     }
 
-    private void ExitApplication()
+    private async Task RequestExitAsync()
     {
-        _exitRequested = true;
-        Close();
+        if (_exiting) return;
+        var first = MessageBox.Show(this,
+            "Thoát sẽ dừng đồng bộ và đóng ứng dụng.\nCác file chưa xong sẽ xử lý lại khi mở ứng dụng.\n\nAnh muốn tiếp tục?",
+            "Xác nhận thoát (1/2)", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (first != DialogResult.Yes) return;
+        var second = MessageBox.Show(this,
+            "Xác nhận lần cuối: THOÁT HẲN DriveSync?\nỨng dụng sẽ không còn chạy ngầm.",
+            "Xác nhận thoát (2/2)", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (second != DialogResult.Yes) return;
+        _exiting = true;
+        _exitButton.Enabled = false;
+        _login.Enabled = false;
+        ApplySyncStatus(new SyncStatus(SyncState.Stopping, "Đang thoát", "Dừng lượt đồng bộ an toàn"));
+        try
+        {
+            await StopSyncAsync();
+            _exitRequested = true;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            _exiting = false;
+            _exitButton.Enabled = true;
+            _login.Enabled = true;
+            MessageBox.Show(this, "Không dừng đồng bộ được: " + ex.GetType().Name,
+                "Không thể thoát", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private static string RunKeyName => @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -270,8 +369,7 @@ public sealed partial class MainForm : Form
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKeyName, false);
-            var value = key?.GetValue(RunValue) as string;
-            return value == "\"" + Application.ExecutablePath + "\"";
+            return key?.GetValue(RunValue) as string == "\"" + Application.ExecutablePath + "\"";
         }
         catch { return false; }
     }
@@ -285,28 +383,21 @@ public sealed partial class MainForm : Form
                 ?? throw new InvalidOperationException("Không thể ghi HKCU Run.");
             if (_startup.Checked)
                 key.SetValue(RunValue, "\"" + Application.ExecutablePath + "\"", RegistryValueKind.String);
-            else
-                key.DeleteValue(RunValue, false);
+            else key.DeleteValue(RunValue, false);
         }
         catch (Exception ex)
         {
             _updatingStartup = true;
             _startup.Checked = !_startup.Checked;
             _updatingStartup = false;
-            MessageBox.Show(this, "Không thể thay đổi tự khởi động. Có thể máy đang hạn chế bằng chính sách IT.\n\n" +
-                ex.Message, "DriveSync Portable", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show(this, "Windows không cho thay đổi tự khởi động.\n" + ex.Message,
+                "DriveSync Portable", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
-    }
-
-    private void ExplainUnavailable(string title, string details)
-    {
-        MessageBox.Show(this, details, title + " — Chưa triển khai",
-            MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (!_exitRequested && _backgroundMode && e.CloseReason == CloseReason.UserClosing)
+        if (!_exitRequested && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
             HideToTray();
