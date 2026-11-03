@@ -126,7 +126,7 @@ public sealed partial class MainForm : Form
         });
         top.Controls.Add(Theme.Text("DriveSync Portable", 69, 9, 360, 26, 16, true));
         top.Controls.Add(Theme.Text("Google Drive · Windows Desktop", 70, 34, 350, 17, 8, false, Theme.Muted));
-        var version = Theme.Text("v0.3 · ĐỒNG BỘ HAI CHIỀU", 0, 19, 225, 26, 8, true, Theme.Blue);
+        var version = Theme.Text("v0.3.1 · ĐỒNG BỘ HAI CHIỀU", 0, 19, 225, 26, 8, true, Theme.Blue);
         version.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         version.TextAlign = ContentAlignment.MiddleCenter;
         version.BackColor = Theme.PaleBlue;
