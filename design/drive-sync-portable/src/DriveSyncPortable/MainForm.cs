@@ -165,7 +165,7 @@ public sealed partial class MainForm : Form
     private void BuildSettings()
     {
         _settings.Controls.Add(Theme.Text("Thiết lập nhanh", 18, 8, 195, 24, 10, true));
-        _settings.Controls.Add(Theme.Text("Tự khởi động Windows", 18, 37, 240, 21, 9, true));
+        _settings.Controls.Add(Theme.Text("Tự khởi động cùng Windows", 18, 37, 240, 21, 9, true));
         _settings.Controls.Add(_startup);
         _settings.Controls.AddRange(new Control[] { _background, _togglePause, _exitButton });
     }
