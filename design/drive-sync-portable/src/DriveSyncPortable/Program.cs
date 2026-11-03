@@ -52,6 +52,9 @@ internal static class Program
             }
             catch (Exception e)
             {
+                try {
+                    File.WriteAllText(Path.Combine(Path.GetTempPath(), "drivesync-ui-smoke-error.txt"), e.ToString());
+                } catch { }
                 Console.Error.WriteLine(e);
                 return 2;
             }
