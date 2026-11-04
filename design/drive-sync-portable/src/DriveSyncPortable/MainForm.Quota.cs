@@ -12,6 +12,8 @@ public sealed partial class MainForm
         18, 82, 900, 19, 8, false, Theme.Muted);
     private readonly RoundedButton _quotaRefresh = new("Làm mới quota")
         { Size = new Size(142, 32) };
+    private readonly RoundedButton _driveSearch = new("Tìm kiếm Drive")
+        { Size = new Size(142, 32) };
     private System.Windows.Forms.Timer? _quotaTimer;
     private DateTimeOffset _lastQuotaFetch = DateTimeOffset.MinValue;
     private bool _quotaFetching;
@@ -20,9 +22,20 @@ public sealed partial class MainForm
     {
         _quotaCard.Controls.Add(Theme.Text("QUOTA GOOGLE DRIVE", 18, 8, 260, 22, 9, true, Theme.Muted));
         _quotaCard.Controls.AddRange(new Control[] {
-            _quotaStorage, _quotaApi, _quotaNote, _quotaRefresh
+            _quotaStorage, _quotaApi, _quotaNote, _quotaRefresh, _driveSearch
         });
         _quotaRefresh.Click += async (_, _) => await RefreshQuotaAsync(true);
+        _driveSearch.Click += (_, _) =>
+        {
+            if (_api is null || !_api.IsSignedIn)
+            {
+                MessageBox.Show(this, "Cần đăng nhập Google trước.", "Tìm kiếm Drive",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using var search = new DriveSearchForm(_api);
+            search.ShowDialog(this);
+        };
     }
 
     private void StartQuotaMonitor()
@@ -41,12 +54,15 @@ public sealed partial class MainForm
             _quotaApi.Text = "API hôm nay: chưa có dữ liệu";
             return;
         }
-        _quotaApi.Text = "API EXE hôm nay (UTC): " + day.Requests.ToString("N0")
-            + " request · ~" + day.EstimatedUnits.ToString("N0") + " units"
-            + " · ↑" + TransferFormat.Size(day.UploadedBytes)
-            + " ↓" + TransferFormat.Size(day.DownloadedBytes);
-        _quotaApi.AccessibleDescription =
-            "Đơn vị quota chỉ ước tính từ các lệnh do ứng dụng này phát ra; không bao gồm phần mềm khác hay quota dự án.";
+        double referencePercent = day.EstimatedUnits * 100.0 / 400_000_000.0;
+        _quotaApi.Text = "API EXE hôm nay (UTC): ~" + day.EstimatedUnits.ToString("N0")
+            + " units · " + referencePercent.ToString("0.0000")
+            + "% / ngưỡng tham chiếu 400 triệu";
+        _quotaApi.AccessibleDescription = "Chỉ tính request từ EXE: "
+            + day.Requests.ToString("N0") + " request; Upload "
+            + TransferFormat.Size(day.UploadedBytes) + "; Download "
+            + TransferFormat.Size(day.DownloadedBytes)
+            + ". Không phải quota thực tế toàn dự án. Ngưỡng dự án cũ có thể khác.";
     }
 
     private async Task RefreshQuotaAsync(bool force)

@@ -32,7 +32,7 @@ internal static class Program
                     "Đăng nhập Google", "Chọn thư mục", "Tự khởi động cùng Windows",
                     "Chạy ngầm", "Lịch sử đồng bộ", "Tài khoản Google",
                     "Thoát ứng dụng", "TỐC ĐỘ TẢI LÊN", "TỐC ĐỘ TẢI XUỐNG",
-                    "GOOGLE DRIVE", "TRÊN LAPTOP", "QUOTA GOOGLE DRIVE"
+                    "GOOGLE DRIVE", "TRÊN LAPTOP", "QUOTA GOOGLE DRIVE", "Tìm kiếm Drive"
                 };
                 foreach (var label in required)
                     if (!all.Any(c => c.Text.Contains(label, StringComparison.OrdinalIgnoreCase)))

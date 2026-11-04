@@ -217,6 +217,21 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         return GetString(user, "emailAddress");
     }
 
+    // Runs only after a user search, not from the sync polling loop.
+    public async Task<List<DriveItem>> SearchByNameAsync(string term, CancellationToken ct)
+    {
+        string escaped = term.Trim().Replace("\\", "\\\\").Replace("'", "\\'");
+        if (escaped.Length < 2 || escaped.Length > 100)
+            throw new ArgumentException("Nhập từ khóa gồm 2-100 ký tự.");
+        string q = "name contains '" + escaped + "' and trashed = false";
+        string url = "https://www.googleapis.com/drive/v3/files?q=" + Param(q)
+            + "&fields=" + Param("nextPageToken,files(" + ItemFields + ")")
+            + "&pageSize=100";
+        using var json = await JsonAsync(HttpMethod.Get, url, null, ct);
+        return json.RootElement.GetProperty("files").EnumerateArray()
+            .Select(ReadItem).ToList();
+    }
+
     public async Task<List<DriveItem>> ListChildrenAsync(string parentId, CancellationToken ct)
     {
         var list = new List<DriveItem>();
@@ -346,9 +361,22 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         string temp = destination + ".drivesync-partial";
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         long resumeOffset = File.Exists(temp) ? new FileInfo(temp).Length : 0;
-        using var response = await SendAsync(HttpMethod.Get,
-            "https://www.googleapis.com/drive/v3/files/" + Param(remoteId) + "?alt=media",
-            null, ct, resumeOffset > 0 ? resumeOffset : null);
+        string endpoint = "https://www.googleapis.com/drive/v3/files/" + Param(remoteId) + "?alt=media";
+        HttpResponseMessage result;
+        try
+        {
+            result = await SendAsync(HttpMethod.Get, endpoint,
+                null, ct, resumeOffset > 0 ? resumeOffset : null);
+        }
+        catch (HttpRequestException ex) when (
+            resumeOffset > 0 && ex.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            // A completed or stale partial may be longer than the current remote file.
+            File.Delete(temp);
+            resumeOffset = 0;
+            result = await SendAsync(HttpMethod.Get, endpoint, null, ct);
+        }
+        using var response = result;
 
         // Some servers ignore Range. Start clean in that case, never append a full response.
         bool append = resumeOffset > 0 && response.StatusCode == HttpStatusCode.PartialContent

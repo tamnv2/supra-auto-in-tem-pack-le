@@ -59,3 +59,14 @@ Google yêu cầu OAuth Desktop Client ID riêng (Rclone shared ID không còn p
 
 ## Phạm vi repo
 Ứng dụng DriveSync nằm hoàn toàn tại `design/drive-sync-portable/src/DriveSyncPortable`, workflow riêng. Không sửa mã nghiệp vụ hoặc phát hành WMS đang chạy. PR #30 không merge main cho tới khi tách ứng dụng sang repo độc lập.
+
+
+## v0.4.0 - Quota & đồng bộ an toàn
+- Thẻ quota: dung lượng thực tế từ `about.get` (tối đa 1 lần/30 phút hoặc bấm làm mới) và API Units ước tính riêng EXE theo request từ lúc áp dụng v0.4.0; **không phải số liệu billing/quota của toàn Google Cloud Project**. Ngưỡng 400 triệu units/ngày chỉ là tham chiếu dự án thuộc chính sách từ 01/05/2026; dự án cũ có thể khác. Giao diện có thể chưa cập nhật ngay khi mới mở.
+- Tìm kiếm file Drive theo tên chỉ khi người dùng yêu cầu, tối đa 100 kết quả mỗi lượt.
+- Giảm quét toàn bộ Drive: lọc Google Change Feed theo File ID và parent ID thuộc mapping; đối soát toàn cây mỗi 4 giờ, hoặc khi cần phục hồi checkpoint. Vẫn giữ quét định kỳ bảo vệ.
+- Đổi tên/di chuyển local hoặc remote chỉ cập nhật metadata/đường dẫn khi chứng minh nội dung không đổi; giữ nguyên File ID và lịch sử Drive. Nếu có xung đột, fallback logic giữ dữ liệu.
+- Đồng bộ tạo thư mục rỗng từ máy lên Google Drive; không tự xóa remote empty folder.
+- Download giữ file tạm sau sự cố mạng và thử `Range` để tải tiếp. Nếu server không hỗ trợ hoặc checksum sai, tải lại từ đầu.
+- Retry GET có giới hạn, có jitter; không retry ghi mù để tránh tạo bản sao.
+- **Chưa PASS OAuth/Drive thật trên máy người dùng.** CI chỉ kiểm tra mã, UI và mô phỏng offline. Chưa triển khai đủ 33 hạng mục được đề xuất.
