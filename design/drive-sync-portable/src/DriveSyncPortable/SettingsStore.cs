@@ -26,6 +26,7 @@ internal sealed class AppSettings
     public int UploadLimitKiBps { get; set; } = 0; // 0 = unlimited
     public int DownloadLimitKiBps { get; set; } = 0; // 0 = unlimited
     public string IgnoredExtensions { get; set; } = "";
+    public string ProxyUrl { get; set; } = ""; // Blank = Windows default proxy.
     public bool MappingApproved { get; set; } = false;
     public Dictionary<string, SyncRecord> Records { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

@@ -20,7 +20,8 @@ internal sealed record DriveItem(
 
 internal sealed partial class GoogleDriveApi : ICloudDriveApi, IDisposable
 {
-    private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(30) };
+    private readonly HttpClient Client;
+    private readonly HttpClient UploadClient;
     private readonly SettingsStore _store;
     public UsageTracker Usage { get; }
     private readonly SemaphoreSlim _tokenGate = new(1, 1);
@@ -29,9 +30,27 @@ internal sealed partial class GoogleDriveApi : ICloudDriveApi, IDisposable
     public GoogleDriveApi(SettingsStore store)
     {
         _store = store;
+        Client = new HttpClient(BuildHandler(store.Data.ProxyUrl, autoRedirect: true))
+            { Timeout = TimeSpan.FromMinutes(30) };
+        UploadClient = new HttpClient(BuildHandler(store.Data.ProxyUrl, autoRedirect: false))
+            { Timeout = TimeSpan.FromMinutes(30) };
         Usage = new UsageTracker(store.StorageFolder);
         _uploadLimiter = new BandwidthLimiter(() => _store.Data.UploadLimitKiBps);
         _downloadLimiter = new BandwidthLimiter(() => _store.Data.DownloadLimitKiBps);
+    }
+
+    private static HttpClientHandler BuildHandler(string proxyUrl, bool autoRedirect)
+    {
+        var handler = new HttpClientHandler { AllowAutoRedirect = autoRedirect };
+        if (!string.IsNullOrWhiteSpace(proxyUrl))
+        {
+            var uri = new Uri(proxyUrl.Trim(), UriKind.Absolute);
+            if (uri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(uri.UserInfo))
+                throw new InvalidOperationException("Proxy không hợp lệ: chỉ HTTP/HTTPS, không nhập mật khẩu.");
+            handler.Proxy = new WebProxy(uri);
+            handler.UseProxy = true;
+        }
+        return handler;
     }
 
     public bool IsSignedIn => _store.GetToken()?.RefreshToken?.Length > 0;
@@ -526,5 +545,10 @@ internal sealed partial class GoogleDriveApi : ICloudDriveApi, IDisposable
             new { trashed = true }, ct);
     }
 
-    public void Dispose() => _tokenGate.Dispose();
+    public void Dispose()
+    {
+        Client.Dispose();
+        UploadClient.Dispose();
+        _tokenGate.Dispose();
+    }
 }

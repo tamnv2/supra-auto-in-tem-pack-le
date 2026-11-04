@@ -114,8 +114,15 @@ public sealed partial class MainForm : Form
             _config.Data.UploadLimitKiBps = dialog.UploadLimitKiBps;
             _config.Data.DownloadLimitKiBps = dialog.DownloadLimitKiBps;
             _config.Data.IgnoredExtensions = dialog.IgnoredExtensions;
+            string previousProxy = _config.Data.ProxyUrl;
+            _config.Data.ProxyUrl = dialog.ProxyUrl;
             _config.Save();
             await StopSyncAsync();
+            if (!string.Equals(previousProxy, dialog.ProxyUrl, StringComparison.Ordinal))
+            {
+                _api?.Dispose();
+                _api = new GoogleDriveApi(_config);
+            }
             await StartSyncIfReadyAsync();
         };
         _startup.CheckedChanged += (_, _) => ChangeStartup();

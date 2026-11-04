@@ -27,7 +27,8 @@ internal sealed partial class GoogleDriveApi
         request.Headers.Authorization = new AuthenticationHeaderValue(
             "Bearer", await AccessTokenAsync(ct));
         Usage.RecordRequest(HttpMethod.Put, sessionUri.ToString(), sessionChunk: true);
-        return await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        // Google uses HTTP 308 for incomplete uploads; do not follow it as a redirect.
+        return await UploadClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
     }
 
     private static long NextOffset(HttpResponseMessage response)
