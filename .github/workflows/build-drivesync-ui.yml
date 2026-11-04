@@ -61,7 +61,11 @@ jobs:
         run: |
           $exe = (Resolve-Path output/app/DriveSyncPortable.exe).Path
           $p = Start-Process -FilePath $exe -ArgumentList '--sync-smoke' -PassThru -Wait
-          if ($p.ExitCode -ne 0) { throw "SYNC_SMOKE_FAILED_$($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) {
+            $diag = Join-Path $env:TEMP 'drivesync-sync-smoke-error.txt'
+            if (Test-Path $diag) { Get-Content $diag }
+            throw "SYNC_SMOKE_FAILED_$($p.ExitCode)"
+          }
       - name: Package EXE and SHA256
         shell: pwsh
         run: |
