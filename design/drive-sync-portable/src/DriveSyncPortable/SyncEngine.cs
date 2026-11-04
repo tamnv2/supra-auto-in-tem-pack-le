@@ -671,7 +671,8 @@ internal sealed class SyncEngine : IDisposable
 
         string[] pendingPaths = paths
             .Where(x => IsSafeRelative(x) && RequiresSync(x, local, remote))
-            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+            .OrderBy(x => PendingSize(x, local, remote))
+            .ThenBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
         QueueChanged?.Invoke(pendingPaths.Length, 0);
         int attempted = 0;
         foreach (string relative in pendingPaths)
@@ -688,6 +689,19 @@ internal sealed class SyncEngine : IDisposable
             finally { QueueChanged?.Invoke(pendingPaths.Length, ++attempted); }
         }
         return allSucceeded;
+    }
+
+    // Small files first; no extra requests, without starving larger files.
+    private static long PendingSize(string relative,
+        Dictionary<string, string> local, Dictionary<string, DriveItem> remote)
+    {
+        if (local.TryGetValue(relative, out var path) && File.Exists(path))
+        {
+            try { return new FileInfo(path).Length; }
+            catch (IOException) { return long.MaxValue; }
+            catch (UnauthorizedAccessException) { return long.MaxValue; }
+        }
+        return remote.TryGetValue(relative, out var item) ? item.Size : 0;
     }
 
     private bool RequiresSync(string path, Dictionary<string, string> local,
