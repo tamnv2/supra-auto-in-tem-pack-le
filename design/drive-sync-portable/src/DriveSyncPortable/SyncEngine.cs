@@ -519,6 +519,16 @@ internal sealed class SyncEngine : IDisposable
                 _store.Data.Records.Remove(tracked.Key);
                 _store.Data.Records[renamed] = tracked.Value;
             }
+            foreach (var tracked in _store.Data.FolderRecords.ToArray())
+            {
+                if (tracked.Key != old.Key
+                    && !tracked.Key.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string mapped = tracked.Key == old.Key
+                    ? newRelative : newPrefix + tracked.Key[oldPrefix.Length..];
+                _store.Data.FolderRecords.Remove(tracked.Key);
+                _store.Data.FolderRecords[mapped] = tracked.Value;
+            }
             _store.Save();
             Log("Drive đã đổi tên/di chuyển thư mục: " + old.Key + " → " + newRelative);
         }
@@ -575,6 +585,16 @@ internal sealed class SyncEngine : IDisposable
                 _store.Data.Records.Remove(entry.Key);
                 _store.Data.Records[dest] = entry.Value;
             }
+            foreach (var tracked in _store.Data.FolderRecords.ToArray())
+            {
+                if (tracked.Key != rename.OldPath
+                    && !tracked.Key.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string mapped = tracked.Key == rename.OldPath
+                    ? rename.NewPath : newPrefix + tracked.Key[oldPrefix.Length..];
+                _store.Data.FolderRecords.Remove(tracked.Key);
+                _store.Data.FolderRecords[mapped] = tracked.Value;
+            }
             _store.Save();
             Log("Đổi tên/di chuyển thư mục, giữ File ID: "
                 + rename.OldPath + " → " + rename.NewPath);
@@ -595,6 +615,12 @@ internal sealed class SyncEngine : IDisposable
         foreach (var folder in _remoteFolders!.Keys.OrderBy(p => p.Count(c => c == '/')))
         {
             if (folder.Length == 0) continue;
+            // Do not recreate a previously mirrored folder that was deleted locally.
+            if (_store.Data.MirrorDeletes
+                && _store.Data.FolderRecords.TryGetValue(folder, out string? previousId)
+                && previousId == _remoteFolders[folder]
+                && !Directory.Exists(LocalPath(folder)))
+                continue;
             Directory.CreateDirectory(LocalPath(folder));
         }
         foreach (var folder in LocalFolders().OrderBy(x => x.Count(c => c == '/')))
@@ -688,7 +714,33 @@ internal sealed class SyncEngine : IDisposable
             }
             finally { QueueChanged?.Invoke(pendingPaths.Length, ++attempted); }
         }
+        if (allSucceeded)
+            await ReconcileEmptyFolderDeletesAsync(ct);
         return allSucceeded;
+    }
+
+    private async Task ReconcileEmptyFolderDeletesAsync(CancellationToken ct)
+    {
+        if (!_store.Data.MirrorDeletes || _remoteFolders is null) return;
+        foreach (var entry in _remoteFolders.Where(p => p.Key.Length > 0)
+            .OrderByDescending(p => p.Key.Count(c => c == '/')).ToArray())
+        {
+            if (!_store.Data.FolderRecords.TryGetValue(entry.Key, out string? storedId)
+                || storedId != entry.Value
+                || Directory.Exists(LocalPath(entry.Key)))
+                continue;
+            await AssertRemoteFolderWithinScopeAsync(entry.Value, ct);
+            // No folder is trashed if Google reports even one remaining child.
+            if ((await _drive.ListChildrenAsync(entry.Value, ct)).Count > 0) continue;
+            await _drive.TrashAsync(entry.Value, ct);
+            _remoteFolders.Remove(entry.Key);
+            _store.Data.FolderRecords.Remove(entry.Key);
+            Log("Đã đưa thư mục rỗng vào thùng rác Drive: " + entry.Key);
+        }
+        foreach (var entry in _remoteFolders)
+            if (entry.Key.Length > 0 && Directory.Exists(LocalPath(entry.Key)))
+                _store.Data.FolderRecords[entry.Key] = entry.Value;
+        _store.Save();
     }
 
     // Small files first; no extra requests, without starving larger files.

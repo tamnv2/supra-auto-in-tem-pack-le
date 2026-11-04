@@ -29,6 +29,7 @@ internal sealed class AppSettings
     public string ProxyUrl { get; set; } = ""; // Blank = Windows default proxy.
     public bool MappingApproved { get; set; } = false;
     public Dictionary<string, SyncRecord> Records { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> FolderRecords { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 internal sealed class OAuthToken
@@ -61,6 +62,8 @@ internal sealed class SettingsStore
                 ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsPath), JsonOptions) ?? new AppSettings()
                 : new AppSettings();
             Data.Records = new Dictionary<string, SyncRecord>(Data.Records ?? new(), StringComparer.OrdinalIgnoreCase);
+            Data.FolderRecords = new Dictionary<string, string>(Data.FolderRecords ?? new(),
+                StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
@@ -131,6 +134,7 @@ internal sealed class SettingsStore
         Data.RemoteFolderId = "";
         Data.RemoteFolderName = "";
         Data.Records.Clear();
+        Data.FolderRecords.Clear();
         Save();
     }
 }
