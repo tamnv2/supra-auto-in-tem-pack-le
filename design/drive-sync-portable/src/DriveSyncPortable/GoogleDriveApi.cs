@@ -22,8 +22,9 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
 {
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(30) };
     private readonly SettingsStore _store;
+    public UsageTracker Usage { get; }
     private readonly SemaphoreSlim _tokenGate = new(1, 1);
-    public GoogleDriveApi(SettingsStore store) { _store = store; }
+    public GoogleDriveApi(SettingsStore store) { _store = store; Usage = new UsageTracker(store.StorageFolder); }
 
     public bool IsSignedIn => _store.GetToken()?.RefreshToken?.Length > 0;
     public Action<TransferProgress>? TransferChanged { get; set; }
@@ -159,16 +160,34 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, HttpContent? content, CancellationToken ct)
     {
-        var token = await AccessTokenAsync(ct);
-        using var request = new HttpRequestMessage(method, url);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        if (content is not null) request.Content = content;
-        var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (response.IsSuccessStatusCode) return response;
-        int code = (int)response.StatusCode;
-        response.Dispose();
-        throw new HttpRequestException("Google Drive API HTTP " + code, null, (HttpStatusCode)code);
+        // Only idempotent reads are retried here; never blindly retry a write.
+        int maxAttempts = method == HttpMethod.Get ? 3 : 1;
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var token = await AccessTokenAsync(ct);
+            using var request = new HttpRequestMessage(method, url);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (content is not null) request.Content = content;
+            Usage.RecordRequest(method, url,
+                method == HttpMethod.Put && url.Contains("upload_id=", StringComparison.OrdinalIgnoreCase));
+            var response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (response.IsSuccessStatusCode) return response;
+            bool retry = method == HttpMethod.Get && attempt + 1 < maxAttempts
+                && (response.StatusCode == HttpStatusCode.TooManyRequests
+                    || (int)response.StatusCode >= 500);
+            int code = (int)response.StatusCode;
+            if (!retry)
+            {
+                response.Dispose();
+                throw new HttpRequestException("Google Drive API HTTP " + code, null, (HttpStatusCode)code);
+            }
+            response.Dispose();
+            int delay = Math.Min(8_000, 1_000 * (1 << attempt)) + Random.Shared.Next(0, 600);
+            await Task.Delay(delay, ct);
+        }
+        throw new HttpRequestException("Google Drive API hết số lần thử lại.");
     }
+
 
     private async Task<JsonDocument> JsonAsync(HttpMethod method, string url, object? data, CancellationToken ct)
     {
@@ -176,6 +195,18 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         using var response = await SendAsync(method, url, payload, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         return await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+    }
+
+    public async Task<DriveStorageQuota> ReadStorageQuotaAsync(CancellationToken ct)
+    {
+        using var json = await JsonAsync(HttpMethod.Get,
+            "https://www.googleapis.com/drive/v3/about?fields="
+            + Param("storageQuota(limit,usage,usageInDrive)"), null, ct);
+        var quota = json.RootElement.GetProperty("storageQuota");
+        string limitText = GetString(quota, "limit");
+        return new DriveStorageQuota(
+            long.TryParse(limitText, out long limit) ? limit : null,
+            GetLong(quota, "usage"), GetLong(quota, "usageInDrive"));
     }
 
     public async Task<string> ReadEmailAsync(CancellationToken ct)
@@ -267,6 +298,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
             using var upload = await SendAsync(HttpMethod.Put, location.ToString(), payload, ct);
             await using var stream = await upload.Content.ReadAsStreamAsync(ct);
             using var json = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            Usage.RecordTransfer(TransferDirection.Upload, info.Length);
             return ReadItem(json.RootElement);
         }
         finally { meter.Finish(); }
@@ -280,6 +312,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         request.Headers.TryAddWithoutValidation("X-Upload-Content-Type", "application/octet-stream");
         request.Headers.TryAddWithoutValidation("X-Upload-Content-Length", length.ToString());
         request.Content = body;
+        Usage.RecordRequest(method, endpoint);
         var response = await Client.SendAsync(request, ct);
         if (response.IsSuccessStatusCode) return response;
         var code = (int)response.StatusCode;
@@ -334,6 +367,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
                 throw new IOException("File trên máy đã thay đổi khi tải về; không ghi đè.");
 
             File.Move(temp, destination, true);
+            Usage.RecordTransfer(TransferDirection.Download, new FileInfo(destination).Length);
         }
         finally
         {

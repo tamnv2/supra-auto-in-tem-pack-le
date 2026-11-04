@@ -84,12 +84,13 @@ public sealed partial class MainForm : Form
         Controls.Add(_viewport);
         Controls.Add(MakeHeader());
         _viewport.Controls.AddRange(new Control[] {
-            _hero, _upCard, _downCard, _account, _folderHeader, _local, _remote,
+            _hero, _upCard, _downCard, _quotaCard, _account, _folderHeader, _local, _remote,
             _settings, _activity, _privacy, _footer
         });
 
         BuildHero();
         BuildSpeedCards();
+        BuildQuotaCard();
         BuildAccount();
         BuildFolders();
         BuildSettings();
@@ -109,6 +110,7 @@ public sealed partial class MainForm : Form
         Shown += (_, _) => LayoutCards();
         LayoutCards();
         InitializeSync();
+        StartQuotaMonitor();
     }
 
     private Panel MakeHeader()
@@ -126,7 +128,7 @@ public sealed partial class MainForm : Form
         });
         top.Controls.Add(Theme.Text("DriveSync Portable", 69, 9, 360, 26, 16, true));
         top.Controls.Add(Theme.Text("Google Drive · Windows Desktop", 70, 34, 350, 17, 8, false, Theme.Muted));
-        var version = Theme.Text("v0.3.1 · ĐỒNG BỘ HAI CHIỀU", 0, 19, 225, 26, 8, true, Theme.Blue);
+        var version = Theme.Text("v0.4.0 · ĐỒNG BỘ HAI CHIỀU", 0, 19, 225, 26, 8, true, Theme.Blue);
         version.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         version.TextAlign = ContentAlignment.MiddleCenter;
         version.BackColor = Theme.PaleBlue;
@@ -223,6 +225,13 @@ public sealed partial class MainForm : Form
             _downInfo.SetBounds(185, 35, Math.Max(90, w - half - gap - 204), 25);
 
             y += 76 + gap;
+            _quotaCard.SetBounds(x, y, w, 115);
+            _quotaStorage.SetBounds(18, 34, Math.Max(150, w - 195), 22);
+            _quotaApi.SetBounds(18, 59, w - 36, 21);
+            _quotaNote.SetBounds(18, 84, w - 36, 20);
+            _quotaRefresh.SetBounds(w - 165, 11, 147, 33);
+
+            y += 115 + gap;
             _account.SetBounds(x, y, w, 84);
             _accountName.SetBounds(70, 29, Math.Max(180, w - 280), 22);
             _accountDesc.SetBounds(70, 52, Math.Max(180, w - 280), 20);
@@ -448,6 +457,8 @@ public sealed partial class MainForm : Form
         }
         _sync?.Dispose();
         _api?.Dispose();
+        _quotaTimer?.Stop();
+        _quotaTimer?.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         base.OnFormClosing(e);

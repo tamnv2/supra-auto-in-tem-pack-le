@@ -32,7 +32,7 @@ internal static class Program
                     "Đăng nhập Google", "Chọn thư mục", "Tự khởi động cùng Windows",
                     "Chạy ngầm", "Lịch sử đồng bộ", "Tài khoản Google",
                     "Thoát ứng dụng", "TỐC ĐỘ TẢI LÊN", "TỐC ĐỘ TẢI XUỐNG",
-                    "GOOGLE DRIVE", "TRÊN LAPTOP"
+                    "GOOGLE DRIVE", "TRÊN LAPTOP", "QUOTA GOOGLE DRIVE"
                 };
                 foreach (var label in required)
                     if (!all.Any(c => c.Text.Contains(label, StringComparison.OrdinalIgnoreCase)))
@@ -56,6 +56,13 @@ internal static class Program
                     !progress.Last().Completed || TransferFormat.Speed(1024).Length == 0)
                     throw new InvalidOperationException("TRANSFER_METER_INCORRECT");
 
+                if (UsageTracker.EstimateUnits(HttpMethod.Get,
+                        "https://www.googleapis.com/drive/v3/changes?pageToken=123") != 100
+                    || UsageTracker.EstimateUnits(HttpMethod.Get,
+                        "https://www.googleapis.com/drive/v3/about?fields=storageQuota") != 5
+                    || UsageTracker.EstimateUnits(HttpMethod.Get,
+                        "https://www.googleapis.com/drive/v3/files/abc?alt=media") != 200)
+                    throw new InvalidOperationException("QUOTA_COST_MAPPING_INCORRECT");
                 Console.WriteLine("UI_SMOKE_PASS");
                 return 0;
             }

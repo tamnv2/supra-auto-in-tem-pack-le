@@ -80,6 +80,9 @@ public sealed partial class MainForm
             AddActivity("Đã đăng nhập Google");
             SetStatus("Đăng nhập thành công", "Chọn thư mục laptop và Google Drive");
             await StartSyncIfReadyAsync();
+            _lastQuotaFetch = DateTimeOffset.MinValue;
+            _quotaStorage.Text = "Dung lượng Drive: đang cập nhật";
+            await RefreshQuotaAsync(true);
         }
         catch (OperationCanceledException)
         {
