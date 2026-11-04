@@ -135,6 +135,8 @@ internal sealed class DriveSearchForm : Form
         try
         {
             SyncScopeGuard.ResolveExistingFile(_localRoot, dialog.FileName);
+            SyncScopeGuard.ResolveExistingFile(_localRoot,
+                dialog.FileName + ".drivesync-partial");
             await _drive.ExportNativeAsync(item, dialog.FileName, CancellationToken.None);
             _status.Text = "Đã xuất bản sao: " + Path.GetFileName(dialog.FileName);
         }
