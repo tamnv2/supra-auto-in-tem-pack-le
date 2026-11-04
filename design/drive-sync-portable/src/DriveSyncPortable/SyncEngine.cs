@@ -571,6 +571,8 @@ internal sealed class SyncEngine : IDisposable
                                       Dictionary<string, DriveItem> remote, CancellationToken ct)
     {
         bool hasLocal = local.TryGetValue(relative, out var localFile) && File.Exists(localFile);
+        if (hasLocal)
+            SyncScopeGuard.ResolveExistingFile(_store.Data.LocalFolder, localFile!);
         bool hasRemote = remote.TryGetValue(relative, out var remoteFile);
         bool tracked = _store.Data.Records.TryGetValue(relative, out var prior);
         if (!hasLocal && !hasRemote) { _store.Data.Records.Remove(relative); _store.Save(); return; }
