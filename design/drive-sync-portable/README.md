@@ -73,3 +73,16 @@ Google yêu cầu OAuth Desktop Client ID riêng (Rclone shared ID không còn p
 
 - Tài liệu Google Docs/Sheets/Slides/Drawings trong thư mục được đồng bộ thành shortcut có hậu tố `.gdrive.url`; không phải bản sao chỉnh sửa offline. Không tự động xóa shortcut cũ khi tài liệu bị xóa từ Drive để tránh mất dữ liệu.
 - Tại cửa sổ **Tìm kiếm Drive** có thể xuất **bản sao Office/PDF** theo yêu cầu người dùng, tuân thủ giới hạn export của Google (ví dụ tệp vượt 10 MB có thể không xuất được qua endpoint thông thường). Không tự xuất hàng loạt.
+
+## v0.4.1 — Chế độ cá nhân (1 tài khoản / 1 cặp thư mục)
+
+- EXE Portable, không yêu cầu bộ cài hay quyền quản trị. Chỉ một Gmail đăng nhập và một cặp thư mục Windows ↔ Drive hoạt động tại một thời điểm.
+- **Không cho chọn toàn bộ My Drive hoặc toàn bộ ổ đĩa Windows.** Không đồng bộ thư mục chứa token/cấu hình DriveSync.
+- Tự động từ chối truy cập đường dẫn ngoài phạm vi, đường dẫn `..`, symlink, junction hoặc đường dẫn đã được chuyển ra ngoài thư mục đã thiết lập.
+- Kiểm tra Drive File ID và chuỗi thư mục cha bằng API trước khi tạo, cập nhật, di chuyển, xóa file. Nếu file đã rời khỏi vùng được chọn thì dừng thay vì sửa/xóa ngoài phạm vi.
+- Tìm kiếm chỉ duyệt trong thư mục Drive được chọn, không tìm kiếm toàn bộ Drive. Xuất thủ công Office/PDF cũng chỉ cho phép trong thư mục Windows đã thiết lập.
+- Các thao tác đồng bộ chỉ ảnh hưởng file nghiệp vụ bên trong cặp thư mục đã thiết lập; không tự sửa/xóa file nghiệp vụ ngoài hai thư mục.
+- Dữ liệu **nội bộ ứng dụng** (OAuth token mã hóa, cấu hình, lịch sử và Recovery khi bật đồng bộ xóa) vẫn lưu tại `%LOCALAPPDATA%\DriveSyncPortable`. Đây là dữ liệu hệ thống của ứng dụng, không phải đồng bộ file nghiệp vụ ngoài phạm vi.
+- Offline smoke: kiểm tra chặn đường dẫn vượt thư mục, chặn chọn cả My Drive và không xóa file bị chuyển ra ngoài Drive khi cache cũ.
+- Lưu ý: API metadata xác minh trước khi ghi giúp giảm rủi ro, nhưng Google có thể có thay đổi đồng thời trong khoảng kiểm tra–ghi. Không khẳng định bảo đảm tuyệt đối 100% khi có tiến trình khác liên tục di chuyển file.
+- Chỉ phát hành bản ZIP test. Production PASS đòi hỏi kiểm tra trên Windows/Google Drive thật; không merge vào WMS `main`.
