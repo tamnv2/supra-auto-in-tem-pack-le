@@ -98,3 +98,9 @@ Google yêu cầu OAuth Desktop Client ID riêng (Rclone shared ID không còn p
 - Phím tắt Windows Ctrl+Alt+D mở lại cửa sổ từ tray. Không cài shell extension, không yêu cầu Admin.
 - Upload session URL mã hóa DPAPI, tự xóa phiên khi thay tài khoản, thay cặp thư mục hoặc Logout.
 - CI kiểm tra build portable Windows x64, giao diện, bố cục và đồng bộ offline; chưa xác nhận OAuth/Google Drive thật. Không merge vào WMS main.
+
+## v0.4.3 — Theo dõi và xử lý xóa thư mục rỗng
+- Khi bật đồng bộ xóa, phần mềm chỉ đưa thư mục trên Drive vào Thùng rác nếu thư mục từng đồng bộ thành công, đã xóa ở Windows, và Google API xác nhận không còn bất kỳ file/thư mục con nào. Không xóa vĩnh viễn.
+- Nếu xuất hiện file mới trên Drive trong khi thư mục bị xóa trên Windows, file mới sẽ được tải về và thư mục được giữ lại. Không tự xóa thư mục chưa có checkpoint trước đó.
+- Kiểm thử bổ sung: xóa thư mục rỗng, bảo vệ thư mục có file mới trên Drive, không tái tạo thư mục đã xóa.
+- Phạm vi giữ nguyên một Gmail, một cặp thư mục; build Portable riêng biệt với WMS. Chưa xác nhận bằng dữ liệu Google thật.

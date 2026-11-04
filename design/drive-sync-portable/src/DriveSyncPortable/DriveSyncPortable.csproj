@@ -8,7 +8,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <AssemblyName>DriveSyncPortable</AssemblyName>
     <RootNamespace>DriveSyncPortable</RootNamespace>
-    <Version>0.4.2</Version>
+    <Version>0.4.3</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
