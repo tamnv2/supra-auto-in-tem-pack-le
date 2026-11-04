@@ -58,6 +58,12 @@ internal sealed class FakeDrive : ICloudDriveApi
         Touch(node);
     }
 
+    public void MoveWithoutChangeToken(string name, string fromParent, string toParent)
+    {
+        Find(name, fromParent).Parent = toParent;
+        // Simulate stale cached path before a change-feed event.
+    }
+
     public void DeleteRemoteFile(string name, string parent = "scope")
     {
         var node = Find(name, parent);
@@ -174,6 +180,20 @@ internal static class SyncSmoke
         Directory.CreateDirectory(local);
         try
         {
+            string outsideLocal = Path.Combine(root, "outside-local");
+            Directory.CreateDirectory(outsideLocal);
+            string protectedFile = Path.Combine(outsideLocal, "protected.txt");
+            await File.WriteAllTextAsync(protectedFile, "PROTECTED");
+
+            bool traversalRejected = false;
+            try { SyncScopeGuard.ResolveLocalChild(local, "../outside-local/protected.txt"); }
+            catch (IOException) { traversalRejected = true; }
+            Check(traversalRejected, "LOCAL_TRAVERSAL_REJECTED");
+            bool driveRootRejected = false;
+            try { SyncScopeGuard.ValidateRemoteRoot("root"); }
+            catch (InvalidOperationException) { driveRootRejected = true; }
+            Check(driveRootRejected, "WHOLE_MY_DRIVE_REJECTED");
+
             var settings = new SettingsStore(privateSettings);
             settings.Data.LocalFolder = local;
             settings.Data.RemoteFolderId = "scope";
@@ -185,6 +205,9 @@ internal static class SyncSmoke
             using var engine = new SyncEngine(settings, fake);
             var activity = new List<string>();
             engine.Activity += activity.Add;
+
+            fake.ChangeRemoteFile("outside.txt",
+                System.Text.Encoding.UTF8.GetBytes("OUTSIDE"), "outside");
 
             // 1. Local create -> Google upload
             string workbook = Path.Combine(local, "BaoCao.xlsx");
@@ -246,6 +269,19 @@ internal static class SyncSmoke
             Check(File.Exists(Path.Combine(local, "CloudRenamed.txt"))
                 && !File.Exists(Path.Combine(local, "CloudRename.txt")),
                 "REMOTE_RENAME_MOVED_LOCAL");
+
+            // No Drive update/trash after the file is moved outside the selected folder.
+            string leaving = Path.Combine(local, "Leaving.txt");
+            await File.WriteAllTextAsync(leaving, "leaving");
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(fake.Exists("Leaving.txt"), "SCOPE_SENTINEL_UPLOADED");
+            fake.MoveWithoutChangeToken("Leaving.txt", "scope", "outside");
+            File.Delete(leaving);
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(fake.Exists("Leaving.txt", "outside"), "STALE_CACHE_CANNOT_TRASH_OUTSIDE");
+            Check(!File.Exists(Path.Combine(local, "outside.txt")), "OUTSIDE_NOT_DOWNLOADED");
+            Check(await File.ReadAllTextAsync(protectedFile) == "PROTECTED",
+                "OUTSIDE_LOCAL_UNCHANGED");
 
             // 8. Local delete -> Drive trash
             File.Delete(workbook);
