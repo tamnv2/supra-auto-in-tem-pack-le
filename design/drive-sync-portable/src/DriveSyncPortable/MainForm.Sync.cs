@@ -111,6 +111,13 @@ public sealed partial class MainForm
             dialog.InitialDirectory = _config.Data.LocalFolder;
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         if (!Directory.Exists(dialog.SelectedPath)) return;
+        try { SyncScopeGuard.ValidateLocalRoot(dialog.SelectedPath); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Thư mục không hợp lệ",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         if (string.Equals(_config.Data.LocalFolder, dialog.SelectedPath, StringComparison.OrdinalIgnoreCase))
             return;
         await StopSyncAsync();
@@ -133,6 +140,7 @@ public sealed partial class MainForm
         }
         using var dialog = new RemoteFolderPicker(_api);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        SyncScopeGuard.ValidateRemoteRoot(dialog.SelectedId);
         if (string.Equals(_config.Data.RemoteFolderId, dialog.SelectedId, StringComparison.Ordinal))
             return;
         await StopSyncAsync();
@@ -161,6 +169,16 @@ public sealed partial class MainForm
             || string.IsNullOrWhiteSpace(_config.Data.RemoteFolderId))
         {
             SetStatus("Chưa sẵn sàng", "Đăng nhập và chọn đủ hai thư mục");
+            return;
+        }
+        try
+        {
+            SyncScopeGuard.ValidateLocalRoot(_config.Data.LocalFolder);
+            SyncScopeGuard.ValidateRemoteRoot(_config.Data.RemoteFolderId);
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Đã khóa đồng bộ", ex.Message);
             return;
         }
 

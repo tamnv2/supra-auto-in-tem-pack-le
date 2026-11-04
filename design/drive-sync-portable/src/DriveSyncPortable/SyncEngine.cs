@@ -40,10 +40,8 @@ internal sealed class SyncEngine : IDisposable
     public void Start()
     {
         if (IsRunning) return;
-        if (!Directory.Exists(_store.Data.LocalFolder))
-            throw new DirectoryNotFoundException("Thư mục laptop không tồn tại.");
-        if (string.IsNullOrWhiteSpace(_store.Data.RemoteFolderId))
-            throw new InvalidOperationException("Chưa chọn thư mục Google Drive.");
+        SyncScopeGuard.ValidateLocalRoot(_store.Data.LocalFolder);
+        SyncScopeGuard.ValidateRemoteRoot(_store.Data.RemoteFolderId);
         if (!_drive.IsSignedIn)
             throw new InvalidOperationException("Chưa đăng nhập tài khoản Google.");
 
@@ -186,6 +184,9 @@ internal sealed class SyncEngine : IDisposable
         await _syncLock.WaitAsync(ct);
         try
         {
+            SyncScopeGuard.ValidateLocalRoot(_store.Data.LocalFolder);
+            SyncScopeGuard.ValidateRemoteRoot(_store.Data.RemoteFolderId);
+            await AssertRemoteFolderWithinScopeAsync(_store.Data.RemoteFolderId, ct);
             Report(SyncState.Checking, "Đang kiểm tra thay đổi",
                 "Đối chiếu Google Drive và thư mục trên máy");
             bool localDirty = Interlocked.Exchange(ref _dirty, 0) == 1;
@@ -261,6 +262,34 @@ internal sealed class SyncEngine : IDisposable
                 : "Hoàn tất · Lần kiểm tra " + DateTime.Now.ToString("HH:mm:ss"));
         }
         finally { _syncLock.Release(); }
+    }
+
+    // Verify current Drive ancestry before each write; never trust cached paths alone.
+    private async Task AssertRemoteFolderWithinScopeAsync(string folderId, CancellationToken ct)
+    {
+        SyncScopeGuard.ValidateRemoteRoot(_store.Data.RemoteFolderId);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        string current = folderId;
+        for (int depth = 0; depth <= 32; depth++)
+        {
+            if (!seen.Add(current)) throw new IOException("Drive folder parent cycle.");
+            var item = await _drive.GetItemAsync(current, ct);
+            if (!item.Folder || item.Trashed)
+                throw new IOException("Drive folder is no longer available.");
+            if (current == _store.Data.RemoteFolderId) return;
+            if (item.Parents.Length != 1)
+                throw new IOException("Drive folder is outside selected root.");
+            current = item.Parents[0];
+        }
+        throw new IOException("Drive folder depth exceeds allowed scope.");
+    }
+
+    private async Task AssertRemoteFileWithinScopeAsync(string fileId, CancellationToken ct)
+    {
+        var item = await _drive.GetItemAsync(fileId, ct);
+        if (item.Folder || item.Trashed || item.Parents.Length != 1)
+            throw new IOException("Drive file moved or unavailable; update blocked.");
+        await AssertRemoteFolderWithinScopeAsync(item.Parents[0], ct);
     }
 
     private async Task RefreshRemoteAsync(CancellationToken ct)
@@ -349,14 +378,7 @@ internal sealed class SyncEngine : IDisposable
     }
 
     private string LocalPath(string relative)
-    {
-        var root = Path.GetFullPath(_store.Data.LocalFolder).TrimEnd(Path.DirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        string path = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
-        if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Đường dẫn vượt ngoài thư mục đồng bộ.");
-        return path;
-    }
+        => SyncScopeGuard.ResolveLocalChild(_store.Data.LocalFolder, relative);
 
     private static string LocalVersion(string path)
     {
@@ -412,6 +434,7 @@ internal sealed class SyncEngine : IDisposable
             string next = current.Length == 0 ? segment : current + "/" + segment;
             if (!_remoteFolders!.ContainsKey(next))
             {
+                await AssertRemoteFolderWithinScopeAsync(_remoteFolders[current], ct);
                 var newFolder = await _drive.CreateFolderAsync(segment,
                     _remoteFolders[current], ct);
                 _remoteFolders[next] = newFolder.Id;
@@ -430,6 +453,7 @@ internal sealed class SyncEngine : IDisposable
             string child = string.IsNullOrEmpty(current) ? segments[i] : current + "/" + segments[i];
             if (!_remoteFolders!.ContainsKey(child))
             {
+                await AssertRemoteFolderWithinScopeAsync(_remoteFolders[current], ct);
                 var created = await _drive.CreateFolderAsync(segments[i],
                     _remoteFolders[current], ct);
                 _remoteFolders[child] = created.Id;
@@ -478,6 +502,7 @@ internal sealed class SyncEngine : IDisposable
             string newFile = LocalPath(current.Key);
             if (File.Exists(newFile)) continue;
             Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
+            SyncScopeGuard.ResolveExistingFile(_store.Data.LocalFolder, oldFile);
             File.Move(oldFile, newFile);
             local.Remove(previous.Key);
             local[current.Key] = newFile;
@@ -494,6 +519,7 @@ internal sealed class SyncEngine : IDisposable
         foreach (var candidate in local.Where(p => !_store.Data.Records.ContainsKey(p.Key)
                                                 && !remote.ContainsKey(p.Key)))
         {
+            SyncScopeGuard.ResolveExistingFile(_store.Data.LocalFolder, candidate.Value);
             string signature = LocalVersion(candidate.Value);
             var matches = missing.Where(old =>
                 _store.Data.Records[old].LocalVersion == signature
@@ -506,6 +532,8 @@ internal sealed class SyncEngine : IDisposable
                 sourceItem.Md5, StringComparison.OrdinalIgnoreCase)) continue;
             string newParent = await EnsureRemoteParentAsync(candidate.Key, ct);
             string oldParent = sourceItem.Parents.FirstOrDefault() ?? _store.Data.RemoteFolderId;
+            await AssertRemoteFileWithinScopeAsync(sourceItem.Id, ct);
+            await AssertRemoteFolderWithinScopeAsync(newParent, ct);
             var moved = await _drive.RenameOrMoveAsync(sourceItem.Id,
                 Path.GetFileName(candidate.Key), oldParent, newParent, ct);
             remote.Remove(oldPath);
@@ -559,6 +587,7 @@ internal sealed class SyncEngine : IDisposable
                     return;
                 }
                 string conflict = MakeConflictPath(localFile!);
+                SyncScopeGuard.ResolveExistingFile(_store.Data.LocalFolder, localFile!);
                 File.Copy(localFile!, conflict, false);
                 _conflictNeedsReview = true;
                 Log("Giữ bản laptop xung đột: " + Path.GetFileName(conflict));
@@ -581,7 +610,8 @@ internal sealed class SyncEngine : IDisposable
         {
             if (_store.Data.MirrorDeletes && !remoteChanged)
             {
-                await _drive.TrashAsync(remoteFile!.Id, ct);
+                await AssertRemoteFileWithinScopeAsync(remoteFile!.Id, ct);
+                await _drive.TrashAsync(remoteFile.Id, ct);
                 remote.Remove(relative);
                 _store.Data.Records.Remove(relative);
                 _store.Save();
@@ -598,6 +628,7 @@ internal sealed class SyncEngine : IDisposable
                 string backup = Path.Combine(_store.StorageFolder, "Recovery", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"),
                     relative.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+                SyncScopeGuard.ResolveExistingFile(_store.Data.LocalFolder, localFile!);
                 File.Move(localFile!, backup);
                 _store.Data.Records.Remove(relative);
                 _store.Save();
@@ -633,6 +664,10 @@ internal sealed class SyncEngine : IDisposable
             throw new IOException("File vẫn đang được ghi; sẽ thử sau.");
 
         string parent = await EnsureRemoteParentAsync(relative, ct);
+        await AssertRemoteFolderWithinScopeAsync(parent, ct);
+        if (!string.IsNullOrWhiteSpace(remoteId))
+            await AssertRemoteFileWithinScopeAsync(remoteId, ct);
+        SyncScopeGuard.ResolveExistingFile(_store.Data.LocalFolder, source);
         Report(SyncState.Uploading, "Đang đồng bộ · Tải lên", relative);
         var item = await _drive.UploadAsync(source, relative.Split('/').Last(), parent, remoteId, ct);
         // Commit server ID even if the source changed during upload: never create a duplicate
@@ -659,6 +694,7 @@ internal sealed class SyncEngine : IDisposable
     {
         string target = LocalPath(relative);
         string expected = File.Exists(target) ? LocalVersion(target) : "";
+        await AssertRemoteFileWithinScopeAsync(item.Id, ct);
         Report(SyncState.Downloading, "Đang đồng bộ · Tải xuống", relative);
         await _drive.DownloadAsync(item.Id, target, expected, item.Md5, ct);
         SaveRecord(relative, item, target);

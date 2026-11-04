@@ -9,7 +9,7 @@ using System.Text.Json;
 namespace DriveSyncPortable;
 
 internal sealed record DriveItem(
-    string Id, string Name, string MimeType, string ModifiedTime, string Md5, long Size, string[] Parents)
+    string Id, string Name, string MimeType, string ModifiedTime, string Md5, long Size, string[] Parents, bool Trashed = false)
 {
     public bool Folder => MimeType == "application/vnd.google-apps.folder";
     public bool NativeGoogleFile => MimeType.StartsWith("application/vnd.google-apps.", StringComparison.Ordinal)
@@ -50,7 +50,8 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
             ? p.EnumerateArray().Select(x => x.GetString() ?? "").ToArray()
             : Array.Empty<string>();
         return new DriveItem(GetString(e, "id"), GetString(e, "name"), GetString(e, "mimeType"),
-            GetString(e, "modifiedTime"), GetString(e, "md5Checksum"), GetLong(e, "size"), parents);
+            GetString(e, "modifiedTime"), GetString(e, "md5Checksum"), GetLong(e, "size"), parents,
+            e.TryGetProperty("trashed", out var trashed) && trashed.ValueKind == JsonValueKind.True);
     }
 
     private static string ItemFields = "id,name,mimeType,modifiedTime,md5Checksum,size,parents,trashed";
@@ -274,6 +275,14 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         using var json = await JsonAsync(HttpMethod.Get, url, null, ct);
         return json.RootElement.GetProperty("files").EnumerateArray()
             .Select(ReadItem).ToList();
+    }
+
+    public async Task<DriveItem> GetItemAsync(string id, CancellationToken ct)
+    {
+        using var json = await JsonAsync(HttpMethod.Get,
+            "https://www.googleapis.com/drive/v3/files/" + Param(id)
+                + "?fields=" + Param(ItemFields), null, ct);
+        return ReadItem(json.RootElement);
     }
 
     public async Task<List<DriveItem>> ListChildrenAsync(string parentId, CancellationToken ct)

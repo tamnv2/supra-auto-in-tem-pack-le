@@ -23,6 +23,8 @@ internal sealed class FakeDrive : ICloudDriveApi
     public FakeDrive()
     {
         _nodes["root"] = new Node { Id = "root", Folder = true, Name = "My Drive" };
+        _nodes["scope"] = new Node { Id = "scope", Folder = true, Parent = "root", Name = "Selected" };
+        _nodes["outside"] = new Node { Id = "outside", Folder = true, Parent = "root", Name = "Other" };
     }
 
     private void Touch(Node node)
@@ -34,15 +36,15 @@ internal sealed class FakeDrive : ICloudDriveApi
     private static string Md5(byte[] data) => Convert.ToHexString(MD5.HashData(data)).ToLowerInvariant();
     private static DriveItem ToItem(Node n)
         => new(n.Id, n.Name, n.Folder ? "application/vnd.google-apps.folder" : "application/octet-stream",
-               n.Timestamp, n.Folder ? "" : Md5(n.Bytes), n.Bytes.LongLength, new[] { n.Parent });
+               n.Timestamp, n.Folder ? "" : Md5(n.Bytes), n.Bytes.LongLength, new[] { n.Parent }, n.Trashed);
 
     private Node Find(string name, string parent)
         => _nodes.Values.Single(n => !n.Trashed && n.Parent == parent && n.Name == name);
 
-    public byte[] FileBytes(string name, string parent = "root")
+    public byte[] FileBytes(string name, string parent = "scope")
         => Find(name, parent).Bytes.ToArray();
 
-    public void ChangeRemoteFile(string name, byte[] bytes, string parent = "root")
+    public void ChangeRemoteFile(string name, byte[] bytes, string parent = "scope")
     {
         var node = _nodes.Values.FirstOrDefault(n => !n.Trashed && n.Parent == parent && n.Name == name);
         if (node is null)
@@ -56,14 +58,14 @@ internal sealed class FakeDrive : ICloudDriveApi
         Touch(node);
     }
 
-    public void DeleteRemoteFile(string name, string parent = "root")
+    public void DeleteRemoteFile(string name, string parent = "scope")
     {
         var node = Find(name, parent);
         node.Trashed = true;
         Touch(node);
     }
 
-    public bool Exists(string name, string parent = "root")
+    public bool Exists(string name, string parent = "scope")
         => _nodes.Values.Any(n => !n.Trashed && n.Parent == parent && n.Name == name);
 
     public Task<string> GetStartPageTokenAsync(CancellationToken ct)
@@ -75,6 +77,9 @@ internal sealed class FakeDrive : ICloudDriveApi
         _ = int.TryParse(pageToken, out int original);
         return Task.FromResult((original < _version, _version.ToString()));
     }
+
+    public Task<DriveItem> GetItemAsync(string id, CancellationToken ct)
+        => Task.FromResult(ToItem(_nodes[id]));
 
     public Task<List<DriveItem>> ListChildrenAsync(string parentId, CancellationToken ct)
     {
@@ -171,7 +176,7 @@ internal static class SyncSmoke
         {
             var settings = new SettingsStore(privateSettings);
             settings.Data.LocalFolder = local;
-            settings.Data.RemoteFolderId = "root";
+            settings.Data.RemoteFolderId = "scope";
             settings.Data.RemoteFolderName = "Test Only";
             settings.Data.MirrorDeletes = true;
             settings.Data.MappingApproved = true;
@@ -227,15 +232,15 @@ internal static class SyncSmoke
             // 6. Local empty folder -> remote folder (no sentinel file).
             Directory.CreateDirectory(Path.Combine(local, "EmptyFolder"));
             await engine.SyncNowAsync(CancellationToken.None);
-            Check((await fake.ListChildrenAsync("root", CancellationToken.None))
+            Check((await fake.ListChildrenAsync("scope", CancellationToken.None))
                 .Any(x => x.Name == "EmptyFolder" && x.Folder), "LOCAL_EMPTY_FOLDER_CREATED");
 
             // 7. Remote rename -> local move (no double copy).
             fake.ChangeRemoteFile("CloudRename.txt", System.Text.Encoding.UTF8.GetBytes("cloud-rename"));
             await engine.SyncNowAsync(CancellationToken.None);
-            var cloudItem = (await fake.ListChildrenAsync("root", CancellationToken.None))
+            var cloudItem = (await fake.ListChildrenAsync("scope", CancellationToken.None))
                 .Single(x => x.Name == "CloudRename.txt");
-            await fake.RenameOrMoveAsync(cloudItem.Id, "CloudRenamed.txt", "root", "root",
+            await fake.RenameOrMoveAsync(cloudItem.Id, "CloudRenamed.txt", "scope", "scope",
                 CancellationToken.None);
             await engine.SyncNowAsync(CancellationToken.None);
             Check(File.Exists(Path.Combine(local, "CloudRenamed.txt"))

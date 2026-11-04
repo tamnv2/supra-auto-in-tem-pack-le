@@ -126,6 +126,12 @@ internal sealed class RemoteFolderPicker : Form
         };
         _select.Click += (_, _) =>
         {
+            if (_currentId == "root")
+            {
+                MessageBox.Show(this, "Phải chọn một thư mục con, không đồng bộ toàn bộ My Drive.",
+                    "Giới hạn thư mục", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
             SelectedId = _currentId;
             SelectedName = _currentPath;
             DialogResult = DialogResult.OK;

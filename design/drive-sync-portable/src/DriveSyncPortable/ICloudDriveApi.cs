@@ -7,6 +7,7 @@ internal interface ICloudDriveApi
     Task<string> GetStartPageTokenAsync(CancellationToken ct);
     Task<(bool changed, string nextToken)> ReadChangesAsync(
         string pageToken, IReadOnlyCollection<string> trackedIds, CancellationToken ct);
+    Task<DriveItem> GetItemAsync(string id, CancellationToken ct);
     Task<List<DriveItem>> ListChildrenAsync(string parentId, CancellationToken ct);
     Task<DriveItem> CreateFolderAsync(string name, string parent, CancellationToken ct);
     Task<DriveItem> UploadAsync(string localPath, string name, string parentId,
