@@ -258,6 +258,23 @@ internal static class SyncSmoke
             Check((await fake.ListChildrenAsync("scope", CancellationToken.None))
                 .Any(x => x.Name == "EmptyFolder" && x.Folder), "LOCAL_EMPTY_FOLDER_CREATED");
 
+            // Folder rename must keep the same Drive folder ID and child contents.
+            string oldDir = Path.Combine(local, "OldGroup");
+            Directory.CreateDirectory(oldDir);
+            await File.WriteAllTextAsync(Path.Combine(oldDir, "inside.txt"), "SAME");
+            await engine.SyncNowAsync(CancellationToken.None);
+            var oldFolder = (await fake.ListChildrenAsync("scope", CancellationToken.None))
+                .Single(x => x.Name == "OldGroup");
+            string newDir = Path.Combine(local, "NewGroup");
+            Directory.Move(oldDir, newDir);
+            engine.QueueFolderRename("OldGroup", "NewGroup");
+            await engine.SyncNowAsync(CancellationToken.None);
+            var renamed = (await fake.ListChildrenAsync("scope", CancellationToken.None))
+                .Single(x => x.Name == "NewGroup");
+            Check(renamed.Id == oldFolder.Id, "FOLDER_RENAME_KEEPS_ID");
+            Check(!Directory.Exists(oldDir), "NO_OLD_FOLDER_RECREATED");
+            Check(fake.Exists("inside.txt", renamed.Id), "FOLDER_CHILD_PRESERVED");
+
             // 7. Remote rename -> local move (no double copy).
             fake.ChangeRemoteFile("CloudRename.txt", System.Text.Encoding.UTF8.GetBytes("cloud-rename"));
             await engine.SyncNowAsync(CancellationToken.None);
