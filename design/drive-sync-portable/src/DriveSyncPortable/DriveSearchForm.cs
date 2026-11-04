@@ -13,6 +13,7 @@ internal sealed class DriveSearchForm : Form
     private readonly Button _open = new() { Text = "Mở trên Drive", Width = 125, Enabled = false };
     private readonly Button _copy = new() { Text = "Sao chép liên kết", Width = 145, Enabled = false };
     private readonly Button _export = new() { Text = "Xuất Office/PDF", Width = 125, Enabled = false };
+    private readonly Button _revisions = new() { Text = "Phiên bản cũ", Width = 125, Enabled = false };
     private readonly Label _status = new() { Text = "Chỉ tìm kiếm khi bấm nút. Tối đa 100 kết quả.", AutoSize = true };
     private readonly ListView _items = new() {
         View = View.Details, FullRowSelect = true, MultiSelect = false, Dock = DockStyle.Fill
@@ -43,6 +44,8 @@ internal sealed class DriveSearchForm : Form
             _export.Enabled = selected
                 && SelectedItem() is DriveItem item
                 && GoogleDriveApi.NativeExportFormat(item) is not null;
+            _revisions.Enabled = selected
+                && SelectedItem() is DriveItem binary && !binary.Folder && !binary.NativeGoogleFile;
         };
         _items.DoubleClick += (_, _) => OpenSelected();
 
@@ -57,6 +60,7 @@ internal sealed class DriveSearchForm : Form
         actions.Controls.Add(_open);
         actions.Controls.Add(_copy);
         actions.Controls.Add(_export);
+        actions.Controls.Add(_revisions);
         actions.Controls.Add(_status);
         _status.Margin = new Padding(14, 9, 0, 0);
         _open.Click += (_, _) => OpenSelected();
@@ -64,6 +68,7 @@ internal sealed class DriveSearchForm : Form
             if (SelectedUrl() is string url) Clipboard.SetText(url);
         };
         _export.Click += async (_, _) => await ExportSelectedAsync();
+        _revisions.Click += async (_, _) => await RestoreRevisionAsync();
         _search.Click += async (_, _) => await SearchAsync();
 
         Controls.Add(_items);
@@ -142,6 +147,41 @@ internal sealed class DriveSearchForm : Form
         }
         catch (Exception ex) { _status.Text = "Xuất file thất bại: " + ex.GetType().Name; }
         finally { _export.Enabled = SelectedItem() is not null; }
+    }
+
+    private async Task RestoreRevisionAsync()
+    {
+        DriveItem? item = SelectedItem();
+        if (item is null || item.NativeGoogleFile || item.Folder) return;
+        _revisions.Enabled = false;
+        _status.Text = "Đang đọc lịch sử phiên bản...";
+        try
+        {
+            var revisions = await _drive.ListRevisionsInScopeAsync(
+                item.Id, _remoteRoot, CancellationToken.None);
+            if (revisions.Count == 0)
+            {
+                _status.Text = "Không có bản cũ được Google cung cấp.";
+                return;
+            }
+            using var picker = new RevisionPicker(revisions);
+            if (picker.ShowDialog(this) != DialogResult.OK) return;
+            string basename = new string(Path.GetFileNameWithoutExtension(item.Name)
+                .Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch).ToArray());
+            string extension = Path.GetExtension(item.Name);
+            string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            string relative = basename + " (phuc-hoi-" + stamp + ")" + extension;
+            int seq = 1;
+            while (File.Exists(SyncScopeGuard.ResolveLocalChild(_localRoot, relative)))
+                relative = basename + " (phuc-hoi-" + stamp + "-" + seq++ + ")" + extension;
+            string target = SyncScopeGuard.ResolveLocalChild(_localRoot, relative);
+            await _drive.DownloadRevisionCopyAsync(item.Id, picker.SelectedId,
+                _remoteRoot, _localRoot, target, CancellationToken.None);
+            _status.Text = "Đã lưu bản phục hồi: " + relative;
+        }
+        catch (Exception ex) { _status.Text = "Phục hồi chưa thành công: " + ex.GetType().Name; }
+        finally { _revisions.Enabled = SelectedItem() is DriveItem binary
+            && !binary.Folder && !binary.NativeGoogleFile; }
     }
 
     private void OpenSelected()
