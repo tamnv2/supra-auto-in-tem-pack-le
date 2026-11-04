@@ -550,13 +550,14 @@ internal sealed class SyncEngine : IDisposable
         _conflictNeedsReview = local.Keys.Any(p =>
             p.Contains("(xung-dot-laptop-", StringComparison.OrdinalIgnoreCase));
         var remote = _remoteFiles!;
+        // Resolve queued directory renames BEFORE recreating remote folders locally.
+        await ApplyFolderRenamesAsync(ct);
         // Remote folders are created even if empty, without blindly removing local folders.
         foreach (var folder in _remoteFolders!.Keys.OrderBy(p => p.Count(c => c == '/')))
         {
             if (folder.Length == 0) continue;
             Directory.CreateDirectory(LocalPath(folder));
         }
-        await ApplyFolderRenamesAsync(ct);
         foreach (var folder in LocalFolders().OrderBy(x => x.Count(c => c == '/')))
             await EnsureRemoteFolderAsync(folder, ct);
         foreach (var pair in local)
