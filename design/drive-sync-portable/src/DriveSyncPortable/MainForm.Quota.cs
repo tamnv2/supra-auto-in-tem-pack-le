@@ -27,13 +27,21 @@ public sealed partial class MainForm
         _quotaRefresh.Click += async (_, _) => await RefreshQuotaAsync(true);
         _driveSearch.Click += (_, _) =>
         {
-            if (_api is null || !_api.IsSignedIn)
+            if (_api is null || !_api.IsSignedIn || _config is null)
             {
                 MessageBox.Show(this, "Cần đăng nhập Google trước.", "Tìm kiếm Drive",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            using var search = new DriveSearchForm(_api);
+            if (string.IsNullOrWhiteSpace(_config.Data.LocalFolder)
+                || string.IsNullOrWhiteSpace(_config.Data.RemoteFolderId))
+            {
+                MessageBox.Show(this, "Hãy chọn cặp thư mục trước khi tìm kiếm.",
+                    "Tìm kiếm Drive", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using var search = new DriveSearchForm(_api,
+                _config.Data.RemoteFolderId, _config.Data.LocalFolder);
             search.ShowDialog(this);
         };
     }

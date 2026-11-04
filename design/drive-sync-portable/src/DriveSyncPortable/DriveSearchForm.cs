@@ -6,6 +6,8 @@ namespace DriveSyncPortable;
 internal sealed class DriveSearchForm : Form
 {
     private readonly GoogleDriveApi _drive;
+    private readonly string _remoteRoot;
+    private readonly string _localRoot;
     private readonly TextBox _query = new() { PlaceholderText = "Tên file/thư mục (tối thiểu 2 ký tự)" };
     private readonly Button _search = new() { Text = "Tìm kiếm", Width = 105 };
     private readonly Button _open = new() { Text = "Mở trên Drive", Width = 125, Enabled = false };
@@ -16,9 +18,13 @@ internal sealed class DriveSearchForm : Form
         View = View.Details, FullRowSelect = true, MultiSelect = false, Dock = DockStyle.Fill
     };
 
-    public DriveSearchForm(GoogleDriveApi api)
+    public DriveSearchForm(GoogleDriveApi api, string remoteRoot, string localRoot)
     {
+        SyncScopeGuard.ValidateRemoteRoot(remoteRoot);
+        SyncScopeGuard.ValidateLocalRoot(localRoot);
         _drive = api;
+        _remoteRoot = remoteRoot;
+        _localRoot = localRoot;
         Text = "Tìm kiếm trên Google Drive";
         ClientSize = new Size(840, 540);
         MinimumSize = new Size(660, 390);
@@ -73,7 +79,7 @@ internal sealed class DriveSearchForm : Form
         _items.Items.Clear();
         try
         {
-            var files = await _drive.SearchByNameAsync(_query.Text, CancellationToken.None);
+            var files = await _drive.SearchByNameAsync(_query.Text, _remoteRoot, CancellationToken.None);
             foreach (var item in files)
             {
                 string type = item.Folder ? "Thư mục" : item.NativeGoogleFile ? "Google Docs" : "File";
@@ -109,17 +115,26 @@ internal sealed class DriveSearchForm : Form
         string safe = new string(item.Name
             .Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
         using var dialog = new SaveFileDialog {
-            Title = "Xuất bản sao tài liệu Google",
+            Title = "Xuất tài liệu Google trong thư mục đã chọn",
+            InitialDirectory = _localRoot,
             FileName = safe + format.Extension,
             DefaultExt = format.Extension.TrimStart('.'),
             Filter = "Tệp " + format.Extension.ToUpperInvariant() + "|*" + format.Extension,
             OverwritePrompt = true
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try { SyncScopeGuard.ResolveExistingFile(_localRoot, dialog.FileName); }
+        catch (Exception)
+        {
+            MessageBox.Show(this, "Chỉ được xuất trong thư mục đồng bộ đã chọn.",
+                "Ngoài phạm vi", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         _export.Enabled = false;
         _status.Text = "Đang xuất tài liệu...";
         try
         {
+            SyncScopeGuard.ResolveExistingFile(_localRoot, dialog.FileName);
             await _drive.ExportNativeAsync(item, dialog.FileName, CancellationToken.None);
             _status.Text = "Đã xuất bản sao: " + Path.GetFileName(dialog.FileName);
         }

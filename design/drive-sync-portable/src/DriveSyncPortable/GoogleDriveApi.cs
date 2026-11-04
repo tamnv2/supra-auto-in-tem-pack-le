@@ -262,19 +262,34 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         return GetString(user, "emailAddress");
     }
 
-    // Runs only after a user search, not from the sync polling loop.
-    public async Task<List<DriveItem>> SearchByNameAsync(string term, CancellationToken ct)
+    // User-triggered search only under the selected remote folder.
+    public async Task<List<DriveItem>> SearchByNameAsync(string term,
+        string selectedRootId, CancellationToken ct)
     {
-        string escaped = term.Trim().Replace("\\", "\\\\").Replace("'", "\\'");
-        if (escaped.Length < 2 || escaped.Length > 100)
-            throw new ArgumentException("Nhập từ khóa gồm 2-100 ký tự.");
-        string q = "name contains '" + escaped + "' and trashed = false";
-        string url = "https://www.googleapis.com/drive/v3/files?q=" + Param(q)
-            + "&fields=" + Param("nextPageToken,files(" + ItemFields + ")")
-            + "&pageSize=100";
-        using var json = await JsonAsync(HttpMethod.Get, url, null, ct);
-        return json.RootElement.GetProperty("files").EnumerateArray()
-            .Select(ReadItem).ToList();
+        SyncScopeGuard.ValidateRemoteRoot(selectedRootId);
+        string query = term.Trim();
+        if (query.Length < 2 || query.Length > 100)
+            throw new ArgumentException("Từ khóa phải có 2-100 ký tự.");
+        var hits = new List<DriveItem>();
+        var pending = new Queue<(string Id, int Depth)>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        pending.Enqueue((selectedRootId, 0));
+        while (pending.Count > 0 && hits.Count < 100)
+        {
+            ct.ThrowIfCancellationRequested();
+            var (id, depth) = pending.Dequeue();
+            if (!visited.Add(id)) continue;
+            if (visited.Count > 250)
+                throw new InvalidOperationException("Tìm kiếm vượt 250 thư mục; dừng để bảo vệ quota.");
+            foreach (var item in await ListChildrenAsync(id, ct))
+            {
+                if (item.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                    hits.Add(item);
+                if (hits.Count >= 100) break;
+                if (item.Folder && depth < 32) pending.Enqueue((item.Id, depth + 1));
+            }
+        }
+        return hits;
     }
 
     public async Task<DriveItem> GetItemAsync(string id, CancellationToken ct)
