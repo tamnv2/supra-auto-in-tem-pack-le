@@ -18,7 +18,7 @@ internal sealed record DriveItem(
         ? "time:" + ModifiedTime + "|" + Size : "md5:" + Md5 + "|" + Size;
 }
 
-internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
+internal sealed partial class GoogleDriveApi : ICloudDriveApi, IDisposable
 {
     private static readonly HttpClient Client = new() { Timeout = TimeSpan.FromMinutes(30) };
     private readonly SettingsStore _store;
@@ -377,6 +377,8 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
     {
         var info = new FileInfo(localPath);
         if (!info.Exists) throw new IOException("Tệp nguồn không tồn tại: " + info.Name);
+        if (info.Length > 0)
+            return await UploadResumableAsync(localPath, name, parentId, existingId, ct);
         string endpoint = "https://www.googleapis.com/upload/drive/v3/files";
         bool replacing = !string.IsNullOrEmpty(existingId);
         if (replacing) endpoint += "/" + Param(existingId!);

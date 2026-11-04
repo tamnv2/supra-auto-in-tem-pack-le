@@ -158,6 +158,7 @@ public sealed partial class MainForm
         if (_config is null) return;
         _config.Data.MappingApproved = false;
         _config.Data.ChangeToken = "";
+        _config.Data.ProtectedUploadSession = "";
         _config.Data.Records.Clear();
         _config.Save();
     }

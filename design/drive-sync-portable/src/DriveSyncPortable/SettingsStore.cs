@@ -16,6 +16,7 @@ internal sealed class AppSettings
     public string ClientId { get; set; } = "";
     public string ProtectedClientSecret { get; set; } = "";
     public string ProtectedToken { get; set; } = "";
+    public string ProtectedUploadSession { get; set; } = "";
     public string GoogleEmail { get; set; } = "";
     public string LocalFolder { get; set; } = "";
     public string RemoteFolderId { get; set; } = "";
@@ -35,6 +36,10 @@ internal sealed class OAuthToken
     public string RefreshToken { get; set; } = "";
     public DateTimeOffset ExpiresAt { get; set; }
 }
+
+internal sealed record PendingUploadSession(
+    string LocalPath, string Fingerprint, string ParentId,
+    string FileName, string RemoteId, string SessionUrl);
 
 internal sealed class SettingsStore
 {
@@ -102,9 +107,24 @@ internal sealed class SettingsStore
         Data.ProtectedToken = Protect(JsonSerializer.Serialize(token, JsonOptions));
         Save();
     }
+    public PendingUploadSession? GetPendingUploadSession()
+    {
+        string content = Unprotect(Data.ProtectedUploadSession);
+        return string.IsNullOrEmpty(content)
+            ? null : JsonSerializer.Deserialize<PendingUploadSession>(content, JsonOptions);
+    }
+
+    public void SetPendingUploadSession(PendingUploadSession? session)
+    {
+        Data.ProtectedUploadSession = session is null
+            ? "" : Protect(JsonSerializer.Serialize(session, JsonOptions));
+        Save();
+    }
+
     public void Logout()
     {
         Data.ProtectedToken = "";
+        Data.ProtectedUploadSession = "";
         Data.GoogleEmail = "";
         Data.ChangeToken = "";
         Data.RemoteFolderId = "";
