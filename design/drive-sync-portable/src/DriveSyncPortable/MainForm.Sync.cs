@@ -160,6 +160,7 @@ public sealed partial class MainForm
         _config.Data.ChangeToken = "";
         _config.Data.ProtectedUploadSession = "";
         _config.Data.Records.Clear();
+        _config.Data.FolderRecords.Clear();
         _config.Save();
     }
 

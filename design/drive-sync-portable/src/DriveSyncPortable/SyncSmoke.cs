@@ -304,6 +304,36 @@ internal static class SyncSmoke
                 .Any(x => x.Name == "CloudNewFolder" && x.Id == oldCloudFolder.Id),
                 "REMOTE_FOLDER_RENAME_KEEPS_ID");
 
+            // A previously synced empty folder can be mirrored to Drive Trash.
+            string deletedEmpty = Path.Combine(local, "DeleteEmpty");
+            Directory.CreateDirectory(deletedEmpty);
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check((await fake.ListChildrenAsync("scope", CancellationToken.None))
+                .Any(x => x.Name == "DeleteEmpty" && x.Folder),
+                "EMPTY_FOLDER_UPLOADED");
+            Directory.Delete(deletedEmpty);
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(!(await fake.ListChildrenAsync("scope", CancellationToken.None))
+                .Any(x => x.Name == "DeleteEmpty"),
+                "EMPTY_FOLDER_MIRROR_TRASHED");
+            Check(!Directory.Exists(deletedEmpty), "DELETED_FOLDER_NOT_RECREATED");
+
+            // A folder containing a remote-only new file must NOT be trashed.
+            string keepFolder = Path.Combine(local, "KeepRemoteFolder");
+            Directory.CreateDirectory(keepFolder);
+            await File.WriteAllTextAsync(Path.Combine(keepFolder, "old.txt"), "old");
+            await engine.SyncNowAsync(CancellationToken.None);
+            string keepFolderId = (await fake.ListChildrenAsync("scope", CancellationToken.None))
+                .Single(x => x.Name == "KeepRemoteFolder").Id;
+            Directory.Delete(keepFolder, true);
+            fake.ChangeRemoteFile("new.txt",
+                System.Text.Encoding.UTF8.GetBytes("NEW REMOTE"), keepFolderId);
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(fake.Exists("new.txt", keepFolderId),
+                "REMOTE_ONLY_CHILD_PRESERVED");
+            Check(File.Exists(Path.Combine(keepFolder, "new.txt")),
+                "REMOTE_ONLY_CHILD_DOWNLOADED");
+
             // 7. Remote rename -> local move (no double copy).
             fake.ChangeRemoteFile("CloudRename.txt", System.Text.Encoding.UTF8.GetBytes("cloud-rename"));
             await engine.SyncNowAsync(CancellationToken.None);
