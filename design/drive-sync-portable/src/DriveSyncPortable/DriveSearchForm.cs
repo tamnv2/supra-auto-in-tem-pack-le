@@ -10,6 +10,7 @@ internal sealed class DriveSearchForm : Form
     private readonly Button _search = new() { Text = "Tìm kiếm", Width = 105 };
     private readonly Button _open = new() { Text = "Mở trên Drive", Width = 125, Enabled = false };
     private readonly Button _copy = new() { Text = "Sao chép liên kết", Width = 145, Enabled = false };
+    private readonly Button _export = new() { Text = "Xuất Office/PDF", Width = 125, Enabled = false };
     private readonly Label _status = new() { Text = "Chỉ tìm kiếm khi bấm nút. Tối đa 100 kết quả.", AutoSize = true };
     private readonly ListView _items = new() {
         View = View.Details, FullRowSelect = true, MultiSelect = false, Dock = DockStyle.Fill
@@ -33,6 +34,9 @@ internal sealed class DriveSearchForm : Form
             bool selected = _items.SelectedItems.Count > 0;
             _open.Enabled = selected;
             _copy.Enabled = selected;
+            _export.Enabled = selected
+                && SelectedItem() is DriveItem item
+                && GoogleDriveApi.NativeExportFormat(item) is not null;
         };
         _items.DoubleClick += (_, _) => OpenSelected();
 
@@ -46,12 +50,14 @@ internal sealed class DriveSearchForm : Form
         var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50 };
         actions.Controls.Add(_open);
         actions.Controls.Add(_copy);
+        actions.Controls.Add(_export);
         actions.Controls.Add(_status);
         _status.Margin = new Padding(14, 9, 0, 0);
         _open.Click += (_, _) => OpenSelected();
         _copy.Click += (_, _) => {
             if (SelectedUrl() is string url) Clipboard.SetText(url);
         };
+        _export.Click += async (_, _) => await ExportSelectedAsync();
         _search.Click += async (_, _) => await SearchAsync();
 
         Controls.Add(_items);
@@ -75,7 +81,7 @@ internal sealed class DriveSearchForm : Form
                     item.Name, type,
                     item.Folder || item.NativeGoogleFile ? "" : TransferFormat.Size(item.Size),
                     item.ModifiedTime
-                }) { Tag = item.Id, ToolTipText = item.Name };
+                }) { Tag = item, ToolTipText = item.Name };
                 _items.Items.Add(row);
             }
             _status.Text = files.Count + " kết quả (tối đa 100)";
@@ -87,11 +93,38 @@ internal sealed class DriveSearchForm : Form
         finally { _search.Enabled = true; }
     }
 
+    private DriveItem? SelectedItem()
+        => _items.SelectedItems.Count == 1 ? _items.SelectedItems[0].Tag as DriveItem : null;
+
     private string? SelectedUrl()
     {
-        if (_items.SelectedItems.Count != 1) return null;
-        string id = _items.SelectedItems[0].Tag as string ?? "";
+        string id = SelectedItem()?.Id ?? "";
         return id.Length == 0 ? null : "https://drive.google.com/open?id=" + Uri.EscapeDataString(id);
+    }
+
+    private async Task ExportSelectedAsync()
+    {
+        var item = SelectedItem();
+        if (item is null || GoogleDriveApi.NativeExportFormat(item) is not { } format) return;
+        string safe = new string(item.Name
+            .Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+        using var dialog = new SaveFileDialog {
+            Title = "Xuất bản sao tài liệu Google",
+            FileName = safe + format.Extension,
+            DefaultExt = format.Extension.TrimStart('.'),
+            Filter = "Tệp " + format.Extension.ToUpperInvariant() + "|*" + format.Extension,
+            OverwritePrompt = true
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        _export.Enabled = false;
+        _status.Text = "Đang xuất tài liệu...";
+        try
+        {
+            await _drive.ExportNativeAsync(item, dialog.FileName, CancellationToken.None);
+            _status.Text = "Đã xuất bản sao: " + Path.GetFileName(dialog.FileName);
+        }
+        catch (Exception ex) { _status.Text = "Xuất file thất bại: " + ex.GetType().Name; }
+        finally { _export.Enabled = SelectedItem() is not null; }
     }
 
     private void OpenSelected()

@@ -206,6 +206,42 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         return await JsonDocument.ParseAsync(stream, cancellationToken: ct);
     }
 
+    public static (string Extension, string MimeType)? NativeExportFormat(DriveItem item)
+        => item.MimeType switch {
+            "application/vnd.google-apps.document" =>
+                (".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            "application/vnd.google-apps.spreadsheet" =>
+                (".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            "application/vnd.google-apps.presentation" =>
+                (".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            "application/vnd.google-apps.drawing" => (".pdf", "application/pdf"),
+            _ => null
+        };
+
+    // Manual export only. Native Docs are not silently converted during sync.
+    public async Task ExportNativeAsync(DriveItem item, string destination, CancellationToken ct)
+    {
+        var format = NativeExportFormat(item)
+            ?? throw new NotSupportedException("Loại tài liệu Google không hỗ trợ xuất Office/PDF.");
+        string url = "https://www.googleapis.com/drive/v3/files/" + Param(item.Id)
+            + "/export?mimeType=" + Param(format.MimeType);
+        using var response = await SendAsync(HttpMethod.Get, url, null, ct);
+        string temp = destination + ".drivesync-partial";
+        try
+        {
+            await using var input = await response.Content.ReadAsStreamAsync(ct);
+            await using (var output = new FileStream(temp, FileMode.Create, FileAccess.Write,
+                FileShare.None, 1024 * 1024, true))
+                await input.CopyToAsync(output, ct);
+            File.Move(temp, destination, true);
+            Usage.RecordTransfer(TransferDirection.Download, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+        }
+    }
+
     public async Task<DriveStorageQuota> ReadStorageQuotaAsync(CancellationToken ct)
     {
         using var json = await JsonAsync(HttpMethod.Get,

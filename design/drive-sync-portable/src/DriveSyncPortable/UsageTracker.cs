@@ -101,7 +101,8 @@ internal sealed class UsageTracker
         {
             if (method == HttpMethod.Get)
             {
-                if (uri.Query.Contains("alt=media", StringComparison.OrdinalIgnoreCase)) return 200;
+                if (uri.Query.Contains("alt=media", StringComparison.OrdinalIgnoreCase)
+                    || path.EndsWith("/export", StringComparison.Ordinal)) return 200;
                 if (path.EndsWith("/files", StringComparison.Ordinal)) return 100;
                 return 5;
             }

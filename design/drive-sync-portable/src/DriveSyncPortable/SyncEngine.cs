@@ -296,7 +296,23 @@ internal sealed class SyncEngine : IDisposable
                     stack.Push((path, item.Id, depth + 1));
                 }
                 else if (item.NativeGoogleFile)
-                    Log("Tài liệu Google trực tuyến (chưa hỗ trợ dạng file gốc): " + item.Name);
+                {
+                    // Keep a Windows InternetShortcut, not an editable Office mirror.
+                    // The reserved suffix is excluded from uploads/deletes.
+                    string shortcut = LocalPath(path + ".gdrive.url");
+                    string link = "[InternetShortcut]" + Environment.NewLine
+                        + "URL=https://drive.google.com/open?id=" + Uri.EscapeDataString(item.Id)
+                        + Environment.NewLine + "DriveSyncNativeFile=1" + Environment.NewLine;
+                    Directory.CreateDirectory(Path.GetDirectoryName(shortcut)!);
+                    if (!File.Exists(shortcut)
+                        || File.ReadAllText(shortcut).Contains("DriveSyncNativeFile=1",
+                            StringComparison.Ordinal))
+                    {
+                        if (!File.Exists(shortcut) || File.ReadAllText(shortcut) != link)
+                            File.WriteAllText(shortcut, link);
+                    }
+                    else Log("Bỏ qua shortcut trùng với file do người dùng tạo: " + shortcut);
+                }
                 else if (!files.TryAdd(path, item))
                     Log("Tên file trùng trong cùng thư mục: " + path);
             }
@@ -322,6 +338,7 @@ internal sealed class SyncEngine : IDisposable
         string name = relative.Split('/').Last();
         if (name.StartsWith("~$", StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(".drivesync-partial", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith(".gdrive.url", StringComparison.OrdinalIgnoreCase)
             || name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)
             || name.Equals("thumbs.db", StringComparison.OrdinalIgnoreCase))
             return true;

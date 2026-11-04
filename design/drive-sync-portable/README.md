@@ -70,3 +70,6 @@ Google yêu cầu OAuth Desktop Client ID riêng (Rclone shared ID không còn p
 - Download giữ file tạm sau sự cố mạng và thử `Range` để tải tiếp. Nếu server không hỗ trợ hoặc checksum sai, tải lại từ đầu.
 - Retry GET có giới hạn, có jitter; không retry ghi mù để tránh tạo bản sao.
 - **Chưa PASS OAuth/Drive thật trên máy người dùng.** CI chỉ kiểm tra mã, UI và mô phỏng offline. Chưa triển khai đủ 33 hạng mục được đề xuất.
+
+- Tài liệu Google Docs/Sheets/Slides/Drawings trong thư mục được đồng bộ thành shortcut có hậu tố `.gdrive.url`; không phải bản sao chỉnh sửa offline. Không tự động xóa shortcut cũ khi tài liệu bị xóa từ Drive để tránh mất dữ liệu.
+- Tại cửa sổ **Tìm kiếm Drive** có thể xuất **bản sao Office/PDF** theo yêu cầu người dùng, tuân thủ giới hạn export của Google (ví dụ tệp vượt 10 MB có thể không xuất được qua endpoint thông thường). Không tự xuất hàng loạt.
