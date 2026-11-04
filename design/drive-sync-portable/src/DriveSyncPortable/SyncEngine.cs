@@ -11,6 +11,7 @@ internal sealed class SyncEngine : IDisposable
     private CancellationTokenSource? _cancel;
     private Task? _loop;
     private FileSystemWatcher? _watcher;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(string OldPath, string NewPath)> _folderRenames = new();
     private int _dirty = 1;
     private Dictionary<string, DriveItem>? _remoteFiles;
     private Dictionary<string, string>? _remoteFolders;
@@ -78,7 +79,30 @@ internal sealed class SyncEngine : IDisposable
         if (args.Name is not null && IsIgnored(args.Name.Replace('\\', '/'))) return;
         Signal();
     }
-    private void OnRenamed(object sender, RenamedEventArgs args) => Signal();
+    private void OnRenamed(object sender, RenamedEventArgs args)
+    {
+        try
+        {
+            if (Directory.Exists(args.FullPath) && !Directory.Exists(args.OldFullPath))
+            {
+                string oldRelative = Path.GetRelativePath(_store.Data.LocalFolder,
+                    args.OldFullPath).Replace('\\', '/');
+                string newRelative = Path.GetRelativePath(_store.Data.LocalFolder,
+                    args.FullPath).Replace('\\', '/');
+                QueueFolderRename(oldRelative, newRelative);
+            }
+        }
+        catch (IOException) { } // The next reconciliation handles any unresolved rename.
+        Signal();
+    }
+
+    internal void QueueFolderRename(string oldRelative, string newRelative)
+    {
+        if (!IsSafeRelative(oldRelative) || !IsSafeRelative(newRelative))
+            throw new IOException("Thư mục đổi tên nằm ngoài phạm vi đã chọn.");
+        _folderRenames.Enqueue((oldRelative, newRelative));
+        Signal();
+    }
 
     public void Pause(bool pause)
     {
@@ -463,6 +487,62 @@ internal sealed class SyncEngine : IDisposable
         return _remoteFolders![current];
     }
 
+    // Move the same Drive folder ID; never re-upload all children after a local rename.
+    private async Task ApplyFolderRenamesAsync(CancellationToken ct)
+    {
+        while (_folderRenames.TryDequeue(out var rename))
+        {
+            if (!IsSafeRelative(rename.OldPath) || !IsSafeRelative(rename.NewPath))
+                continue;
+            if (!_remoteFolders!.TryGetValue(rename.OldPath, out string? folderId)
+                || _remoteFolders.ContainsKey(rename.NewPath)
+                || rename.NewPath.StartsWith(rename.OldPath + "/", StringComparison.OrdinalIgnoreCase))
+                continue;
+            string oldLocal = LocalPath(rename.OldPath);
+            string newLocal = LocalPath(rename.NewPath);
+            if (!Directory.Exists(newLocal) || Directory.Exists(oldLocal)) continue;
+
+            await AssertRemoteFolderWithinScopeAsync(folderId, ct);
+            string parent = await EnsureRemoteParentAsync(rename.NewPath, ct);
+            await AssertRemoteFolderWithinScopeAsync(parent, ct);
+            var current = await _drive.GetItemAsync(folderId, ct);
+            if (!current.Folder || current.Parents.Length != 1)
+                throw new IOException("Không thể xác minh thư mục Drive đổi tên.");
+            await _drive.RenameOrMoveAsync(folderId,
+                Path.GetFileName(rename.NewPath), current.Parents[0], parent, ct);
+
+            string oldPrefix = rename.OldPath + "/";
+            string newPrefix = rename.NewPath + "/";
+            foreach (var entry in _remoteFolders.ToArray())
+            {
+                if (entry.Key != rename.OldPath
+                    && !entry.Key.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                string dest = entry.Key == rename.OldPath
+                    ? rename.NewPath : newPrefix + entry.Key[oldPrefix.Length..];
+                _remoteFolders.Remove(entry.Key);
+                _remoteFolders[dest] = entry.Value;
+            }
+            foreach (var entry in _remoteFiles!.ToArray())
+            {
+                if (!entry.Key.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                string dest = newPrefix + entry.Key[oldPrefix.Length..];
+                _remoteFiles.Remove(entry.Key);
+                _remoteFiles[dest] = entry.Value;
+            }
+            foreach (var entry in _store.Data.Records.ToArray())
+            {
+                if (!entry.Key.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                string dest = newPrefix + entry.Key[oldPrefix.Length..];
+                _store.Data.Records.Remove(entry.Key);
+                _store.Data.Records[dest] = entry.Value;
+            }
+            _store.Save();
+            Log("Đổi tên/di chuyển thư mục, giữ File ID: "
+                + rename.OldPath + " → " + rename.NewPath);
+        }
+    }
+
     private async Task<bool> ReconcileAsync(CancellationToken ct)
     {
         bool allSucceeded = true;
@@ -476,6 +556,7 @@ internal sealed class SyncEngine : IDisposable
             if (folder.Length == 0) continue;
             Directory.CreateDirectory(LocalPath(folder));
         }
+        await ApplyFolderRenamesAsync(ct);
         foreach (var folder in LocalFolders().OrderBy(x => x.Count(c => c == '/')))
             await EnsureRemoteFolderAsync(folder, ct);
         foreach (var pair in local)
