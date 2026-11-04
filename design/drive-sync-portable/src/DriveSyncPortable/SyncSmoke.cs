@@ -275,6 +275,23 @@ internal static class SyncSmoke
             Check(!Directory.Exists(oldDir), "NO_OLD_FOLDER_RECREATED");
             Check(fake.Exists("inside.txt", renamed.Id), "FOLDER_CHILD_PRESERVED");
 
+            // Google-side folder rename must move the local subtree without data re-transfer.
+            string remoteOldDir = Path.Combine(local, "CloudOldFolder");
+            Directory.CreateDirectory(remoteOldDir);
+            await File.WriteAllTextAsync(Path.Combine(remoteOldDir, "inner.txt"), "STABLE");
+            await engine.SyncNowAsync(CancellationToken.None);
+            var oldCloudFolder = (await fake.ListChildrenAsync("scope", CancellationToken.None))
+                .Single(x => x.Name == "CloudOldFolder");
+            await fake.RenameOrMoveAsync(oldCloudFolder.Id, "CloudNewFolder", "scope", "scope",
+                CancellationToken.None);
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(!Directory.Exists(remoteOldDir), "REMOTE_FOLDER_RENAME_OLD_LOCAL_REMOVED");
+            Check(await File.ReadAllTextAsync(Path.Combine(local, "CloudNewFolder", "inner.txt"))
+                == "STABLE", "REMOTE_FOLDER_RENAME_CHILD_UNCHANGED");
+            Check((await fake.ListChildrenAsync("scope", CancellationToken.None))
+                .Any(x => x.Name == "CloudNewFolder" && x.Id == oldCloudFolder.Id),
+                "REMOTE_FOLDER_RENAME_KEEPS_ID");
+
             // 7. Remote rename -> local move (no double copy).
             fake.ChangeRemoteFile("CloudRename.txt", System.Text.Encoding.UTF8.GetBytes("cloud-rename"));
             await engine.SyncNowAsync(CancellationToken.None);
