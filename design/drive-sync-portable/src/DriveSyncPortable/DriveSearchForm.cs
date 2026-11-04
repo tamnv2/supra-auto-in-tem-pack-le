@@ -14,6 +14,7 @@ internal sealed class DriveSearchForm : Form
     private readonly Button _copy = new() { Text = "Sao chép liên kết", Width = 145, Enabled = false };
     private readonly Button _export = new() { Text = "Xuất Office/PDF", Width = 125, Enabled = false };
     private readonly Button _revisions = new() { Text = "Phiên bản cũ", Width = 125, Enabled = false };
+    private readonly Button _sharing = new() { Text = "Quyền chia sẻ", Width = 125, Enabled = false };
     private readonly Label _status = new() { Text = "Chỉ tìm kiếm khi bấm nút. Tối đa 100 kết quả.", AutoSize = true };
     private readonly ListView _items = new() {
         View = View.Details, FullRowSelect = true, MultiSelect = false, Dock = DockStyle.Fill
@@ -46,6 +47,8 @@ internal sealed class DriveSearchForm : Form
                 && GoogleDriveApi.NativeExportFormat(item) is not null;
             _revisions.Enabled = selected
                 && SelectedItem() is DriveItem binary && !binary.Folder && !binary.NativeGoogleFile;
+            _sharing.Enabled = selected
+                && SelectedItem() is DriveItem shareFile && !shareFile.Folder;
         };
         _items.DoubleClick += (_, _) => OpenSelected();
 
@@ -56,11 +59,12 @@ internal sealed class DriveSearchForm : Form
         filter.Controls.Add(_query);
         filter.Controls.Add(_search);
 
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 50 };
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 83 };
         actions.Controls.Add(_open);
         actions.Controls.Add(_copy);
         actions.Controls.Add(_export);
         actions.Controls.Add(_revisions);
+        actions.Controls.Add(_sharing);
         actions.Controls.Add(_status);
         _status.Margin = new Padding(14, 9, 0, 0);
         _open.Click += (_, _) => OpenSelected();
@@ -69,6 +73,7 @@ internal sealed class DriveSearchForm : Form
         };
         _export.Click += async (_, _) => await ExportSelectedAsync();
         _revisions.Click += async (_, _) => await RestoreRevisionAsync();
+        _sharing.Click += async (_, _) => await ManageSharingAsync();
         _search.Click += async (_, _) => await SearchAsync();
 
         Controls.Add(_items);
@@ -147,6 +152,22 @@ internal sealed class DriveSearchForm : Form
         }
         catch (Exception ex) { _status.Text = "Xuất file thất bại: " + ex.GetType().Name; }
         finally { _export.Enabled = SelectedItem() is not null; }
+    }
+
+    private async Task ManageSharingAsync()
+    {
+        DriveItem? item = SelectedItem();
+        if (item is null || item.Folder) return;
+        _sharing.Enabled = false;
+        try
+        {
+            using var dialog = new FilePermissionsForm(_drive, item, _remoteRoot);
+            dialog.ShowDialog(this);
+            _status.Text = "Đã đóng quản lý chia sẻ.";
+        }
+        catch (Exception ex) { _status.Text = "Không mở được chia sẻ: " + ex.GetType().Name; }
+        finally { _sharing.Enabled = SelectedItem() is DriveItem f && !f.Folder; }
+        await Task.CompletedTask;
     }
 
     private async Task RestoreRevisionAsync()
