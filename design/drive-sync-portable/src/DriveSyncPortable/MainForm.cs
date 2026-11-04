@@ -226,7 +226,7 @@ public sealed partial class MainForm : Form
 
             y += 76 + gap;
             _quotaCard.SetBounds(x, y, w, 115);
-            _quotaStorage.SetBounds(18, 34, Math.Max(150, w - 195), 22);
+            _quotaStorage.SetBounds(18, 34, Math.Max(150, w - 210), 22);
             _quotaApi.SetBounds(18, 59, w - 36, 21);
             _quotaNote.SetBounds(18, 84, w - 36, 20);
             _quotaRefresh.SetBounds(w - 165, 11, 147, 33);

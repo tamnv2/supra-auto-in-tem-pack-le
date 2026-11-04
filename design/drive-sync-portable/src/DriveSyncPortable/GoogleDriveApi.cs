@@ -158,7 +158,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         finally { _tokenGate.Release(); }
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, HttpContent? content, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, HttpContent? content, CancellationToken ct, long? rangeStart = null)
     {
         // Only idempotent reads are retried here; never blindly retry a write.
         int maxAttempts = method == HttpMethod.Get ? 3 : 1;
@@ -167,6 +167,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
             var token = await AccessTokenAsync(ct);
             using var request = new HttpRequestMessage(method, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            if (rangeStart is > 0) request.Headers.Range = new RangeHeaderValue(rangeStart.Value, null);
             if (content is not null) request.Content = content;
             Usage.RecordRequest(method, url,
                 method == HttpMethod.Put && url.Contains("upload_id=", StringComparison.OrdinalIgnoreCase));
@@ -344,54 +345,67 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
     {
         string temp = destination + ".drivesync-partial";
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        long resumeOffset = File.Exists(temp) ? new FileInfo(temp).Length : 0;
+        using var response = await SendAsync(HttpMethod.Get,
+            "https://www.googleapis.com/drive/v3/files/" + Param(remoteId) + "?alt=media",
+            null, ct, resumeOffset > 0 ? resumeOffset : null);
+
+        // Some servers ignore Range. Start clean in that case, never append a full response.
+        bool append = resumeOffset > 0 && response.StatusCode == HttpStatusCode.PartialContent
+            && response.Content.Headers.ContentRange?.From == resumeOffset;
+        long incoming = response.Content.Headers.ContentLength ?? 0;
         try
         {
-            using var response = await SendAsync(HttpMethod.Get,
-                "https://www.googleapis.com/drive/v3/files/" + Param(remoteId) + "?alt=media", null, ct);
-            var meter = new TransferMeter(TransferChanged, TransferDirection.Download,
-                Path.GetFileName(destination), response.Content.Headers.ContentLength ?? 0);
-            try
-            {
-                await using var remote = await response.Content.ReadAsStreamAsync(ct);
-                await using var local = new FileStream(temp, FileMode.Create, FileAccess.Write,
-                    FileShare.None, 1024 * 1024, true);
-                byte[] buffer = new byte[256 * 1024];
-                int count;
-                while ((count = await remote.ReadAsync(buffer, ct)) > 0)
-                {
-                    await local.WriteAsync(buffer.AsMemory(0, count), ct);
-                    meter.Add(count);
-                }
-                await local.FlushAsync(ct);
-            }
-            finally { meter.Finish(); }
-
-            if (!string.IsNullOrEmpty(remoteMd5))
-            {
-                await using var verifyStream = new FileStream(temp, FileMode.Open, FileAccess.Read,
-                    FileShare.Read, 1024 * 1024, true);
-                string receivedMd5 = Convert.ToHexString(
-                    await MD5.HashDataAsync(verifyStream, ct)).ToLowerInvariant();
-                if (!receivedMd5.Equals(remoteMd5, StringComparison.OrdinalIgnoreCase))
-                    throw new IOException("Checksum file tải về không đúng; không thay thế file cũ.");
-            }
-
-            string actualLocalState = "";
-            if (File.Exists(destination))
-            {
-                var current = new FileInfo(destination);
-                actualLocalState = current.Length + "|" + current.LastWriteTimeUtc.Ticks;
-            }
-            if (expectedLocalState != actualLocalState)
-                throw new IOException("File trên máy đã thay đổi khi tải về; không ghi đè.");
-
-            File.Move(temp, destination, true);
-            Usage.RecordTransfer(TransferDirection.Download, new FileInfo(destination).Length);
+            string diskRoot = Path.GetPathRoot(Path.GetFullPath(destination)) ?? "";
+            if (!string.IsNullOrWhiteSpace(diskRoot) && incoming > 0
+                && new DriveInfo(diskRoot).AvailableFreeSpace < incoming)
+                throw new IOException("Ổ đĩa không đủ chỗ để tải file.");
         }
-        finally
+        catch (ArgumentException) { /* Unknown drive; let FileStream report an error. */ }
+
+        var meter = new TransferMeter(TransferChanged, TransferDirection.Download,
+            Path.GetFileName(destination), incoming);
+        try
         {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            await using var remote = await response.Content.ReadAsStreamAsync(ct);
+            await using var local = new FileStream(temp, append ? FileMode.Append : FileMode.Create,
+                FileAccess.Write, FileShare.None, 1024 * 1024, true);
+            byte[] buffer = new byte[256 * 1024];
+            int count;
+            while ((count = await remote.ReadAsync(buffer, ct)) > 0)
+            {
+                await local.WriteAsync(buffer.AsMemory(0, count), ct);
+                meter.Add(count);
+            }
+            await local.FlushAsync(ct);
         }
+        finally { meter.Finish(); }
+
+        if (!string.IsNullOrEmpty(remoteMd5))
+        {
+            await using var verifyStream = new FileStream(temp, FileMode.Open, FileAccess.Read,
+                FileShare.Read, 1024 * 1024, true);
+            string receivedMd5 = Convert.ToHexString(
+                await MD5.HashDataAsync(verifyStream, ct)).ToLowerInvariant();
+            if (!receivedMd5.Equals(remoteMd5, StringComparison.OrdinalIgnoreCase))
+            {
+                verifyStream.Close();
+                File.Delete(temp);
+                throw new IOException("Checksum tải về sai; đã xóa file tạm để tải lại từ đầu.");
+            }
+        }
+
+        string actualLocalState = "";
+        if (File.Exists(destination))
+        {
+            var current = new FileInfo(destination);
+            actualLocalState = current.Length + "|" + current.LastWriteTimeUtc.Ticks;
+        }
+        if (expectedLocalState != actualLocalState)
+            throw new IOException("File máy tính đã thay đổi khi tải; không ghi đè.");
+
+        File.Move(temp, destination, true);
+        Usage.RecordTransfer(TransferDirection.Download, new FileInfo(destination).Length);
     }
 
     public async Task<DriveItem> RenameOrMoveAsync(string remoteId, string newName,

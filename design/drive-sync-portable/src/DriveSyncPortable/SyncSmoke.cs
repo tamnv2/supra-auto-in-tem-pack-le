@@ -230,7 +230,19 @@ internal static class SyncSmoke
             Check((await fake.ListChildrenAsync("root", CancellationToken.None))
                 .Any(x => x.Name == "EmptyFolder" && x.Folder), "LOCAL_EMPTY_FOLDER_CREATED");
 
-            // 7. Local delete -> Drive trash
+            // 7. Remote rename -> local move (no double copy).
+            fake.ChangeRemoteFile("CloudRename.txt", System.Text.Encoding.UTF8.GetBytes("cloud-rename"));
+            await engine.SyncNowAsync(CancellationToken.None);
+            var cloudItem = (await fake.ListChildrenAsync("root", CancellationToken.None))
+                .Single(x => x.Name == "CloudRename.txt");
+            await fake.RenameOrMoveAsync(cloudItem.Id, "CloudRenamed.txt", "root", "root",
+                CancellationToken.None);
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(File.Exists(Path.Combine(local, "CloudRenamed.txt"))
+                && !File.Exists(Path.Combine(local, "CloudRename.txt")),
+                "REMOTE_RENAME_MOVED_LOCAL");
+
+            // 8. Local delete -> Drive trash
             File.Delete(workbook);
             await engine.SyncNowAsync(CancellationToken.None);
             Check(!fake.Exists("BaoCao.xlsx"), "LOCAL_DELETE_TRASHED_REMOTELY");

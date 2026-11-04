@@ -435,6 +435,35 @@ internal sealed class SyncEngine : IDisposable
         foreach (var pair in local)
             await EnsureRemoteParentAsync(pair.Key, ct);
 
+        // Remote rename/move detection: the same immutable Drive File ID now has a
+        // new relative path. Only move a local file if its contents are unchanged.
+        foreach (var current in remote.ToArray())
+        {
+            if (_store.Data.Records.ContainsKey(current.Key) || local.ContainsKey(current.Key))
+                continue;
+            var previous = _store.Data.Records.FirstOrDefault(p =>
+                p.Key != current.Key && p.Value.RemoteId == current.Value.Id);
+            if (string.IsNullOrWhiteSpace(previous.Key)
+                || !local.TryGetValue(previous.Key, out string? oldFile)
+                || !File.Exists(oldFile)
+                || previous.Value.LocalVersion != LocalVersion(oldFile)
+                || previous.Value.RemoteVersion != current.Value.Version
+                || string.IsNullOrEmpty(current.Value.Md5))
+                continue;
+            if (!string.Equals(await FileMd5Async(oldFile, ct),
+                current.Value.Md5, StringComparison.OrdinalIgnoreCase))
+                continue;
+            string newFile = LocalPath(current.Key);
+            if (File.Exists(newFile)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(newFile)!);
+            File.Move(oldFile, newFile);
+            local.Remove(previous.Key);
+            local[current.Key] = newFile;
+            _store.Data.Records.Remove(previous.Key);
+            SaveRecord(current.Key, current.Value, newFile);
+            Log("Đổi tên/di chuyển từ Drive: " + previous.Key + " → " + current.Key);
+        }
+
         // Local rename/move detection: stable local fingerprint + matching remote MD5.
         // Never treat modified contents as a pure rename; ambiguous matches fall back
         // to conflict-preserving behavior.
