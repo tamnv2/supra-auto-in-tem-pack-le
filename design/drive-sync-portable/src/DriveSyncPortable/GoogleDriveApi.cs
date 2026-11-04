@@ -149,7 +149,7 @@ internal sealed partial class GoogleDriveApi : ICloudDriveApi, IDisposable
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-    private static async Task<OAuthToken> RequestTokenAsync(Dictionary<string, string> fields, CancellationToken ct)
+    private async Task<OAuthToken> RequestTokenAsync(Dictionary<string, string> fields, CancellationToken ct)
     {
         using var response = await Client.PostAsync("https://oauth2.googleapis.com/token", new FormUrlEncodedContent(fields), ct);
         if (!response.IsSuccessStatusCode)
