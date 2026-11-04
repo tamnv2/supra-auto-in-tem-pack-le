@@ -248,18 +248,37 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         return GetString(json.RootElement, "startPageToken");
     }
 
-    public async Task<(bool changed, string nextToken)> ReadChangesAsync(string pageToken, CancellationToken ct)
+    public async Task<(bool changed, string nextToken)> ReadChangesAsync(
+        string pageToken, IReadOnlyCollection<string> trackedIds, CancellationToken ct)
     {
         bool changes = false;
+        var tracked = new HashSet<string>(trackedIds, StringComparer.Ordinal);
         string token = pageToken;
         while (true)
         {
             string url = "https://www.googleapis.com/drive/v3/changes?pageToken=" + Param(token)
-                + "&fields=" + Param("nextPageToken,newStartPageToken,changes(fileId,removed)")
+                + "&fields=" + Param("nextPageToken,newStartPageToken,changes(fileId,removed,file(id,parents,trashed))")
                 + "&pageSize=1000&includeRemoved=true";
             using var json = await JsonAsync(HttpMethod.Get, url, null, ct);
-            if (json.RootElement.TryGetProperty("changes", out var items) && items.GetArrayLength() > 0)
-                changes = true;
+            if (json.RootElement.TryGetProperty("changes", out var items))
+            {
+                foreach (var change in items.EnumerateArray())
+                {
+                    string id = GetString(change, "fileId");
+                    if (tracked.Contains(id))
+                    {
+                        changes = true;
+                        continue;
+                    }
+                    // Newly created/moved files inside a tracked folder must trigger reconciliation.
+                    if (change.TryGetProperty("file", out var file)
+                        && file.ValueKind == JsonValueKind.Object
+                        && file.TryGetProperty("parents", out var parents)
+                        && parents.ValueKind == JsonValueKind.Array
+                        && parents.EnumerateArray().Any(p => tracked.Contains(p.GetString() ?? "")))
+                        changes = true;
+                }
+            }
             string page = GetString(json.RootElement, "nextPageToken");
             if (!string.IsNullOrEmpty(page))
             {
@@ -373,6 +392,19 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         {
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
         }
+    }
+
+    public async Task<DriveItem> RenameOrMoveAsync(string remoteId, string newName,
+        string oldParentId, string newParentId, CancellationToken ct)
+    {
+        string query = "fields=" + Param(ItemFields);
+        if (!string.Equals(oldParentId, newParentId, StringComparison.Ordinal))
+            query += "&addParents=" + Param(newParentId)
+                  + "&removeParents=" + Param(oldParentId);
+        using var json = await JsonAsync(HttpMethod.Patch,
+            "https://www.googleapis.com/drive/v3/files/" + Param(remoteId) + "?" + query,
+            new { name = newName }, ct);
+        return ReadItem(json.RootElement);
     }
 
     public async Task TrashAsync(string remoteId, CancellationToken ct)

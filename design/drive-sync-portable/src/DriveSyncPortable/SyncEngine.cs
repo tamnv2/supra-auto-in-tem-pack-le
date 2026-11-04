@@ -191,7 +191,7 @@ internal sealed class SyncEngine : IDisposable
             bool localDirty = Interlocked.Exchange(ref _dirty, 0) == 1;
             bool refresh = _remoteFiles is null
                         || _remoteFolders is null
-                        || DateTimeOffset.UtcNow - _lastReconcile >= TimeSpan.FromHours(1);
+                        || DateTimeOffset.UtcNow - _lastReconcile >= TimeSpan.FromHours(4);
             if (string.IsNullOrEmpty(_store.Data.ChangeToken))
             {
                 _store.Data.ChangeToken = await _drive.GetStartPageTokenAsync(ct);
@@ -202,7 +202,13 @@ internal sealed class SyncEngine : IDisposable
             {
                 try
                 {
-                    var changes = await _drive.ReadChangesAsync(_store.Data.ChangeToken, ct);
+                    var tracked = new HashSet<string>(StringComparer.Ordinal);
+                    if (_remoteFiles is not null)
+                        foreach (var item in _remoteFiles.Values) tracked.Add(item.Id);
+                    if (_remoteFolders is not null)
+                        foreach (var id in _remoteFolders.Values) tracked.Add(id);
+                    tracked.Add(_store.Data.RemoteFolderId);
+                    var changes = await _drive.ReadChangesAsync(_store.Data.ChangeToken, tracked, ct);
                     // Commit change token only after successful reconciliation.
                     refresh |= changes.changed;
                     if (refresh)
@@ -357,6 +363,42 @@ internal sealed class SyncEngine : IDisposable
         return files;
     }
 
+    private IEnumerable<string> LocalFolders()
+    {
+        var pending = new Stack<string>();
+        pending.Push(_store.Data.LocalFolder);
+        while (pending.Count > 0)
+        {
+            string root = pending.Pop();
+            foreach (var directory in Directory.EnumerateDirectories(root))
+            {
+                var attrs = File.GetAttributes(directory);
+                if ((attrs & FileAttributes.ReparsePoint) != 0) continue;
+                string relative = Path.GetRelativePath(_store.Data.LocalFolder, directory).Replace('\\', '/');
+                if (!IsSafeRelative(relative)) continue;
+                yield return relative;
+                pending.Push(directory);
+            }
+        }
+    }
+
+    private async Task EnsureRemoteFolderAsync(string relative, CancellationToken ct)
+    {
+        string current = "";
+        foreach (string segment in relative.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string next = current.Length == 0 ? segment : current + "/" + segment;
+            if (!_remoteFolders!.ContainsKey(next))
+            {
+                var newFolder = await _drive.CreateFolderAsync(segment,
+                    _remoteFolders[current], ct);
+                _remoteFolders[next] = newFolder.Id;
+                Log("Đã tạo thư mục Drive: " + next);
+            }
+            current = next;
+        }
+    }
+
     private async Task<string> EnsureRemoteParentAsync(string relative, CancellationToken ct)
     {
         string[] segments = relative.Split('/');
@@ -388,8 +430,40 @@ internal sealed class SyncEngine : IDisposable
             if (folder.Length == 0) continue;
             Directory.CreateDirectory(LocalPath(folder));
         }
+        foreach (var folder in LocalFolders().OrderBy(x => x.Count(c => c == '/')))
+            await EnsureRemoteFolderAsync(folder, ct);
         foreach (var pair in local)
             await EnsureRemoteParentAsync(pair.Key, ct);
+
+        // Local rename/move detection: stable local fingerprint + matching remote MD5.
+        // Never treat modified contents as a pure rename; ambiguous matches fall back
+        // to conflict-preserving behavior.
+        var missing = _store.Data.Records.Keys
+            .Where(k => !local.ContainsKey(k) && remote.ContainsKey(k)).ToList();
+        foreach (var candidate in local.Where(p => !_store.Data.Records.ContainsKey(p.Key)
+                                                && !remote.ContainsKey(p.Key)))
+        {
+            string signature = LocalVersion(candidate.Value);
+            var matches = missing.Where(old =>
+                _store.Data.Records[old].LocalVersion == signature
+                && remote[old].Size == new FileInfo(candidate.Value).Length
+                && !string.IsNullOrEmpty(remote[old].Md5)).ToArray();
+            if (matches.Length != 1) continue;
+            string oldPath = matches[0];
+            var sourceItem = remote[oldPath];
+            if (!string.Equals(await FileMd5Async(candidate.Value, ct),
+                sourceItem.Md5, StringComparison.OrdinalIgnoreCase)) continue;
+            string newParent = await EnsureRemoteParentAsync(candidate.Key, ct);
+            string oldParent = sourceItem.Parents.FirstOrDefault() ?? _store.Data.RemoteFolderId;
+            var moved = await _drive.RenameOrMoveAsync(sourceItem.Id,
+                Path.GetFileName(candidate.Key), oldParent, newParent, ct);
+            remote.Remove(oldPath);
+            remote[candidate.Key] = moved;
+            _store.Data.Records.Remove(oldPath);
+            SaveRecord(candidate.Key, moved, candidate.Value);
+            missing.Remove(oldPath);
+            Log("Đã đổi tên/di chuyển, giữ File ID: " + oldPath + " → " + candidate.Key);
+        }
 
         var paths = new HashSet<string>(local.Keys, StringComparer.OrdinalIgnoreCase);
         paths.UnionWith(remote.Keys);

@@ -69,7 +69,8 @@ internal sealed class FakeDrive : ICloudDriveApi
     public Task<string> GetStartPageTokenAsync(CancellationToken ct)
         => Task.FromResult(_version.ToString());
 
-    public Task<(bool changed, string nextToken)> ReadChangesAsync(string pageToken, CancellationToken ct)
+    public Task<(bool changed, string nextToken)> ReadChangesAsync(
+        string pageToken, IReadOnlyCollection<string> trackedIds, CancellationToken ct)
     {
         _ = int.TryParse(pageToken, out int original);
         return Task.FromResult((original < _version, _version.ToString()));
@@ -132,6 +133,16 @@ internal sealed class FakeDrive : ICloudDriveApi
             File.Move(temp, destination, true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
+    public Task<DriveItem> RenameOrMoveAsync(string remoteId, string newName,
+        string oldParentId, string newParentId, CancellationToken ct)
+    {
+        var node = _nodes[remoteId];
+        if (node.Parent != oldParentId) throw new InvalidOperationException("FAKE_BAD_PARENT");
+        node.Name = newName; node.Parent = newParentId;
+        Touch(node);
+        return Task.FromResult(ToItem(node));
     }
 
     public Task TrashAsync(string remoteId, CancellationToken ct)
@@ -202,7 +213,24 @@ internal static class SyncSmoke
             Check(File.Exists(remoteCreated), "REMOTE_CREATE_DOWNLOADED");
             Check((await File.ReadAllTextAsync(remoteCreated)) == "PDF DATA", "REMOTE_CREATE_CONTENT");
 
-            // 5. Local delete -> Drive trash
+            // 5. Local rename -> Drive metadata update (no duplicate file).
+            string renameBefore = Path.Combine(local, "RenameMe.txt");
+            string renameAfter = Path.Combine(local, "Renamed.txt");
+            await File.WriteAllTextAsync(renameBefore, "rename-contents");
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(fake.Exists("RenameMe.txt"), "RENAME_SOURCE_UPLOADED");
+            File.Move(renameBefore, renameAfter);
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check(fake.Exists("Renamed.txt") && !fake.Exists("RenameMe.txt"),
+                "LOCAL_RENAME_PRESERVES_REMOTE_FILE");
+
+            // 6. Local empty folder -> remote folder (no sentinel file).
+            Directory.CreateDirectory(Path.Combine(local, "EmptyFolder"));
+            await engine.SyncNowAsync(CancellationToken.None);
+            Check((await fake.ListChildrenAsync("root", CancellationToken.None))
+                .Any(x => x.Name == "EmptyFolder" && x.Folder), "LOCAL_EMPTY_FOLDER_CREATED");
+
+            // 7. Local delete -> Drive trash
             File.Delete(workbook);
             await engine.SyncNowAsync(CancellationToken.None);
             Check(!fake.Exists("BaoCao.xlsx"), "LOCAL_DELETE_TRASHED_REMOTELY");
