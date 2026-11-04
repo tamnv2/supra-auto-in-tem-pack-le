@@ -21,6 +21,7 @@ internal sealed class SyncEngine : IDisposable
     public event Action<string>? Status;
     public event Action<SyncStatus>? StateChanged;
     public event Action<TransferProgress>? Progress;
+    public event Action<int, int>? QueueChanged; // total, attempted
     public event Action<string>? Activity;
     public bool IsRunning => _loop is { IsCompleted: false };
     public bool Paused { get; private set; }
@@ -630,10 +631,14 @@ internal sealed class SyncEngine : IDisposable
         paths.UnionWith(remote.Keys);
         paths.UnionWith(_store.Data.Records.Keys);
 
-        foreach (string relative in paths.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        string[] pendingPaths = paths
+            .Where(x => IsSafeRelative(x) && RequiresSync(x, local, remote))
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+        QueueChanged?.Invoke(pendingPaths.Length, 0);
+        int attempted = 0;
+        foreach (string relative in pendingPaths)
         {
             ct.ThrowIfCancellationRequested();
-            if (!IsSafeRelative(relative)) continue;
             try { await SyncFileAsync(relative, local, remote, ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
@@ -642,8 +647,20 @@ internal sealed class SyncEngine : IDisposable
                 Log("Chưa đồng bộ được: " + relative + " · " + SafeError(ex));
                 Interlocked.Exchange(ref _dirty, 1); // Retry on next 60s cycle; avoid request bursts.
             }
+            finally { QueueChanged?.Invoke(pendingPaths.Length, ++attempted); }
         }
         return allSucceeded;
+    }
+
+    private bool RequiresSync(string path, Dictionary<string, string> local,
+        Dictionary<string, DriveItem> remote)
+    {
+        bool here = local.TryGetValue(path, out string? filename) && File.Exists(filename);
+        bool there = remote.TryGetValue(path, out var item);
+        if (!_store.Data.Records.TryGetValue(path, out var record))
+            return here || there;
+        if (!here || !there) return true;
+        return LocalVersion(filename!) != record.LocalVersion || item!.Version != record.RemoteVersion;
     }
 
     private bool IsSafeRelative(string path)

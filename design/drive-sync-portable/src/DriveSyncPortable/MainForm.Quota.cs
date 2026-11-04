@@ -7,6 +7,7 @@ public sealed partial class MainForm
     private readonly RoundedPanel _quotaCard = new() { FillColor = Theme.White };
     private readonly Label _quotaStorage = Theme.Text("Dung lượng Drive: chưa tải", 18, 34, 550, 23, 10, true);
     private readonly Label _quotaApi = Theme.Text("API hôm nay: chưa có dữ liệu", 18, 59, 580, 20, 9, false, Theme.Ink);
+    private readonly Label _queueInfo = Theme.Text("Hàng đợi: chưa kiểm tra", 18, 111, 850, 20, 9, false, Theme.Ink);
     private readonly Label _quotaNote = Theme.Text(
         "API Units là ước tính riêng EXE, không phải số liệu toàn dự án Google Cloud.",
         18, 82, 900, 19, 8, false, Theme.Muted);
@@ -22,7 +23,7 @@ public sealed partial class MainForm
     {
         _quotaCard.Controls.Add(Theme.Text("QUOTA GOOGLE DRIVE", 18, 8, 260, 22, 9, true, Theme.Muted));
         _quotaCard.Controls.AddRange(new Control[] {
-            _quotaStorage, _quotaApi, _quotaNote, _quotaRefresh, _driveSearch
+            _quotaStorage, _quotaApi, _quotaNote, _queueInfo, _quotaRefresh, _driveSearch
         });
         _quotaRefresh.Click += async (_, _) => await RefreshQuotaAsync(true);
         _driveSearch.Click += (_, _) =>

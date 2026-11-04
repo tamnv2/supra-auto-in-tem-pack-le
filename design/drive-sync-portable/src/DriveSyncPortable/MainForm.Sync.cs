@@ -215,6 +215,12 @@ public sealed partial class MainForm
         {
             if (ReferenceEquals(_sync, active)) ApplyTransfer(transfer);
         });
+        _sync.QueueChanged += (total, attempted) => UI(() =>
+        {
+            if (ReferenceEquals(_sync, active))
+                _queueInfo.Text = "Hàng đợi: " + Math.Max(0, total - attempted)
+                    + " file chờ  ·  Đã kiểm tra: " + attempted + "/" + total;
+        });
         _sync.Activity += activity => UI(() =>
         {
             if (ReferenceEquals(_sync, active)) AddActivity(activity);

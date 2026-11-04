@@ -242,14 +242,15 @@ public sealed partial class MainForm : Form
             _downInfo.SetBounds(185, 35, Math.Max(90, w - half - gap - 204), 25);
 
             y += 76 + gap;
-            _quotaCard.SetBounds(x, y, w, 115);
+            _quotaCard.SetBounds(x, y, w, 142);
             _quotaStorage.SetBounds(18, 34, Math.Max(150, w - 210), 22);
             _quotaApi.SetBounds(18, 59, w - 36, 21);
             _quotaNote.SetBounds(18, 84, w - 36, 20);
+            _queueInfo.SetBounds(18, 109, w - 36, 21);
             _driveSearch.SetBounds(w - 320, 11, 142, 33);
             _quotaRefresh.SetBounds(w - 165, 11, 147, 33);
 
-            y += 115 + gap;
+            y += 142 + gap;
             _account.SetBounds(x, y, w, 84);
             _accountName.SetBounds(70, 29, Math.Max(180, w - 280), 22);
             _accountDesc.SetBounds(70, 52, Math.Max(180, w - 280), 20);
