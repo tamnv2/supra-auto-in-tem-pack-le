@@ -15,6 +15,7 @@ internal sealed class SyncEngine : IDisposable
     private int _dirty = 1;
     private Dictionary<string, DriveItem>? _remoteFiles;
     private Dictionary<string, string>? _remoteFolders;
+    private Dictionary<string, string>? _previousRemoteFolders;
     private DateTimeOffset _lastReconcile = DateTimeOffset.MinValue;
     private bool _conflictNeedsReview;
 
@@ -371,6 +372,7 @@ internal sealed class SyncEngine : IDisposable
                     Log("Tên file trùng trong cùng thư mục: " + path);
             }
         }
+        _previousRemoteFolders = _remoteFolders;
         _remoteFiles = files;
         _remoteFolders = folders;
         _lastReconcile = DateTimeOffset.UtcNow;
@@ -488,6 +490,41 @@ internal sealed class SyncEngine : IDisposable
         return _remoteFolders![current];
     }
 
+    // A Google-side folder rename retains the same ID: move its local folder
+    // before scanning local files, avoiding needless re-download of all children.
+    private void ApplyRemoteFolderRenames()
+    {
+        var previous = _previousRemoteFolders;
+        if (previous is null || _remoteFolders is null) return;
+        foreach (var old in previous
+            .Where(p => p.Key.Length > 0)
+            .OrderBy(p => p.Key.Count(c => c == '/')))
+        {
+            if (_remoteFolders.ContainsKey(old.Key)) continue;
+            var candidates = _remoteFolders.Where(p => p.Value == old.Value).ToArray();
+            if (candidates.Length != 1) continue;
+            string newRelative = candidates[0].Key;
+            if (!IsSafeRelative(old.Key) || !IsSafeRelative(newRelative)) continue;
+            string before = LocalPath(old.Key);
+            string after = LocalPath(newRelative);
+            if (!Directory.Exists(before) || Directory.Exists(after)) continue;
+            Directory.CreateDirectory(Path.GetDirectoryName(after)!);
+            Directory.Move(before, after);
+            string oldPrefix = old.Key + "/";
+            string newPrefix = newRelative + "/";
+            foreach (var tracked in _store.Data.Records.ToArray())
+            {
+                if (!tracked.Key.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                string renamed = newPrefix + tracked.Key[oldPrefix.Length..];
+                _store.Data.Records.Remove(tracked.Key);
+                _store.Data.Records[renamed] = tracked.Value;
+            }
+            _store.Save();
+            Log("Drive đã đổi tên/di chuyển thư mục: " + old.Key + " → " + newRelative);
+        }
+        _previousRemoteFolders = _remoteFolders;
+    }
+
     // Move the same Drive folder ID; never re-upload all children after a local rename.
     private async Task ApplyFolderRenamesAsync(CancellationToken ct)
     {
@@ -547,6 +584,7 @@ internal sealed class SyncEngine : IDisposable
     private async Task<bool> ReconcileAsync(CancellationToken ct)
     {
         bool allSucceeded = true;
+        ApplyRemoteFolderRenames();
         var local = ReadLocalFiles();
         _conflictNeedsReview = local.Keys.Any(p =>
             p.Contains("(xung-dot-laptop-", StringComparison.OrdinalIgnoreCase));
