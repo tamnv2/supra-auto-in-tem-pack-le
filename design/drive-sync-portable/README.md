@@ -86,3 +86,15 @@ Google yêu cầu OAuth Desktop Client ID riêng (Rclone shared ID không còn p
 - Offline smoke: kiểm tra chặn đường dẫn vượt thư mục, chặn chọn cả My Drive và không xóa file bị chuyển ra ngoài Drive khi cache cũ.
 - Lưu ý: API metadata xác minh trước khi ghi giúp giảm rủi ro, nhưng Google có thể có thay đổi đồng thời trong khoảng kiểm tra–ghi. Không khẳng định bảo đảm tuyệt đối 100% khi có tiến trình khác liên tục di chuyển file.
 - Chỉ phát hành bản ZIP test. Production PASS đòi hỏi kiểm tra trên Windows/Google Drive thật; không merge vào WMS `main`.
+
+## v0.4.2 — Hoàn thiện chức năng trong phạm vi cá nhân
+
+- Tiếp tục Upload sau đứt mạng/khởi động lại bằng phiên upload mã hóa DPAPI và chunk 8 MiB; dùng trạng thái HTTP 308 của Google, không tự gửi lại từ đầu nếu session còn hiệu lực. Chưa field test Google thật.
+- Đổi tên/di chuyển thư mục con trên máy hoặc trên Google Drive: giữ cùng ID thư mục khi nhận diện được thay đổi, tránh tải toàn bộ dữ liệu lại. Rename trên laptop khi EXE đã tắt chưa có bảo đảm nhận diện chính xác nếu có nhiều thư mục giống nhau.
+- Hiển thị số file chờ xử lý, ưu tiên file nhỏ, bỏ qua file không thay đổi (giảm thao tác local và API khi không cần).
+- Quản lý Viewer/Editor cho file nằm trong thư mục đã chọn; toàn bộ thay đổi quyền là thao tác chủ động có xác nhận, không cấp quyền tự động.
+- Xem 100 phiên bản gần nhất do Drive API cung cấp đối với file dạng binary; tải bản sao cũ vào chính thư mục local đã chọn, không ghi đè bản hiện tại. Tài liệu Google-native mở website để xem lịch sử.
+- Tùy chọn proxy HTTP/HTTPS (không cho nhập mật khẩu trong URL), giữ nguyên proxy hệ thống khi để trống.
+- Phím tắt Windows Ctrl+Alt+D mở lại cửa sổ từ tray. Không cài shell extension, không yêu cầu Admin.
+- Upload session URL mã hóa DPAPI, tự xóa phiên khi thay tài khoản, thay cặp thư mục hoặc Logout.
+- CI kiểm tra build portable Windows x64, giao diện, bố cục và đồng bộ offline; chưa xác nhận OAuth/Google Drive thật. Không merge vào WMS main.

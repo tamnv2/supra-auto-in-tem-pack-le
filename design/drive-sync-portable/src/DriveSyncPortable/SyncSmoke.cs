@@ -201,6 +201,18 @@ internal static class SyncSmoke
             settings.Data.MirrorDeletes = true;
             settings.Data.MappingApproved = true;
             settings.Save();
+            // Persist an upload checkpoint encrypted for the current Windows user.
+            string privateSession = "https://www.googleapis.com/upload/drive/v3/files?upload_id=PRIVATE_TEST";
+            settings.SetPendingUploadSession(new PendingUploadSession(
+                Path.Combine(local, "test.xlsx"), "1|123", "scope", "test.xlsx", "",
+                privateSession));
+            Check(settings.GetPendingUploadSession()?.SessionUrl == privateSession,
+                "UPLOAD_SESSION_ROUNDTRIP");
+            Check(!File.ReadAllText(Path.Combine(privateSettings, "settings.json"))
+                .Contains("PRIVATE_TEST", StringComparison.Ordinal),
+                "UPLOAD_SESSION_DPAPI_ENCRYPTED");
+            settings.SetPendingUploadSession(null);
+
             var fake = new FakeDrive();
             using var engine = new SyncEngine(settings, fake);
             var activity = new List<string>();
