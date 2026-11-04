@@ -317,13 +317,18 @@ internal sealed class SyncEngine : IDisposable
                 Path.GetFileNameWithoutExtension(name), StringComparer.OrdinalIgnoreCase);
     }
 
-    private static bool IsIgnored(string relative)
+    private bool IsIgnored(string relative)
     {
         string name = relative.Split('/').Last();
-        return name.StartsWith("~$", StringComparison.OrdinalIgnoreCase)
+        if (name.StartsWith("~$", StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(".drivesync-partial", StringComparison.OrdinalIgnoreCase)
             || name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("thumbs.db", StringComparison.OrdinalIgnoreCase);
+            || name.Equals("thumbs.db", StringComparison.OrdinalIgnoreCase))
+            return true;
+        string ext = Path.GetExtension(name);
+        return ext.Length > 0 && _store.Data.IgnoredExtensions
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Contains(ext, StringComparer.OrdinalIgnoreCase);
     }
 
     private string LocalPath(string relative)
@@ -514,7 +519,7 @@ internal sealed class SyncEngine : IDisposable
         return allSucceeded;
     }
 
-    private static bool IsSafeRelative(string path)
+    private bool IsSafeRelative(string path)
         => path.Split('/').Length <= 33 && path.Split('/').All(IsSafeName) && !IsIgnored(path);
 
     private async Task SyncFileAsync(string relative, Dictionary<string, string> local,

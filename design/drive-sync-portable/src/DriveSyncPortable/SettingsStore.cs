@@ -22,6 +22,9 @@ internal sealed class AppSettings
     public string RemoteFolderName { get; set; } = "";
     public string ChangeToken { get; set; } = "";
     public bool MirrorDeletes { get; set; } = false;
+    public int UploadLimitKiBps { get; set; } = 0; // 0 = unlimited
+    public int DownloadLimitKiBps { get; set; } = 0; // 0 = unlimited
+    public string IgnoredExtensions { get; set; } = "";
     public bool MappingApproved { get; set; } = false;
     public Dictionary<string, SyncRecord> Records { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

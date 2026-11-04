@@ -38,6 +38,8 @@ public sealed partial class MainForm : Form
     private readonly RoundedButton _exitButton = new("⏻  Thoát ứng dụng")
         { FillColor = Color.FromArgb(255, 243, 240), TextColor = Color.FromArgb(159, 58, 48),
           Outlined = false, Size = new Size(152, 36) };
+    private readonly RoundedButton _preferences = new("Giới hạn / Bộ lọc")
+        { Size = new Size(159, 29) };
     private readonly ToggleSwitch _startup = new();
     private readonly NotifyIcon _tray;
     private readonly Label _footer = Theme.Text("DriveSync Portable · Google OAuth · Token bảo vệ bởi Windows",
@@ -58,6 +60,7 @@ public sealed partial class MainForm : Form
     private bool _exitRequested;
     private bool _exiting;
     private bool _trayTipShown;
+    private string _lastErrorNotification = "";
     private bool _updatingStartup;
     private readonly List<string> _activityHistory = new();
 
@@ -103,6 +106,18 @@ public sealed partial class MainForm : Form
         _remoteChoose.Click += async (_, _) => await ChooseRemoteFolderAsync();
         _background.Click += (_, _) => HideToTray();
         _exitButton.Click += async (_, _) => await RequestExitAsync();
+        _preferences.Click += async (_, _) =>
+        {
+            if (_config is null) return;
+            using var dialog = new SyncPreferencesDialog(_config.Data);
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            _config.Data.UploadLimitKiBps = dialog.UploadLimitKiBps;
+            _config.Data.DownloadLimitKiBps = dialog.DownloadLimitKiBps;
+            _config.Data.IgnoredExtensions = dialog.IgnoredExtensions;
+            _config.Save();
+            await StopSyncAsync();
+            await StartSyncIfReadyAsync();
+        };
         _startup.CheckedChanged += (_, _) => ChangeStartup();
 
         _startup.Checked = ReadStartup();
@@ -177,7 +192,9 @@ public sealed partial class MainForm : Form
         _settings.Controls.Add(Theme.Text("Thiết lập nhanh", 18, 8, 195, 24, 10, true));
         _settings.Controls.Add(Theme.Text("Tự khởi động cùng Windows", 18, 37, 240, 21, 9, true));
         _settings.Controls.Add(_startup);
-        _settings.Controls.AddRange(new Control[] { _background, _togglePause, _exitButton });
+        _settings.Controls.AddRange(new Control[] {
+            _preferences, _background, _togglePause, _exitButton
+        });
     }
 
     private void BuildHistory()
@@ -255,6 +272,7 @@ public sealed partial class MainForm : Form
             bool compactActions = w < 850;
             int settingsHeight = compactActions ? 119 : 78;
             _settings.SetBounds(x, y, w, settingsHeight);
+            _preferences.SetBounds(225, 6, 159, 29);
             _startup.Location = new Point(298, compactActions ? 36 : 40);
             if (compactActions)
             {
@@ -343,6 +361,17 @@ public sealed partial class MainForm : Form
         _statusSubtitle.Text = status.Detail;
         string trayText = "DriveSync: " + status.Title;
         _tray.Text = trayText.Length <= 63 ? trayText : trayText[..63];
+        bool error = status.State is SyncState.NeedsAttention or SyncState.AuthenticationError
+            or SyncState.FolderUnavailable;
+        if (!error)
+            _lastErrorNotification = "";
+        else if (_lastErrorNotification != status.Title)
+        {
+            _lastErrorNotification = status.Title;
+            _tray.Visible = true;
+            _tray.ShowBalloonTip(3500, "DriveSync cần xử lý",
+                status.Title + ": " + status.Detail, ToolTipIcon.Warning);
+        }
     }
 
     private void ApplyTransfer(TransferProgress value)

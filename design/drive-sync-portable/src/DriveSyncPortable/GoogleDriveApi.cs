@@ -24,7 +24,15 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
     private readonly SettingsStore _store;
     public UsageTracker Usage { get; }
     private readonly SemaphoreSlim _tokenGate = new(1, 1);
-    public GoogleDriveApi(SettingsStore store) { _store = store; Usage = new UsageTracker(store.StorageFolder); }
+    private readonly BandwidthLimiter _uploadLimiter;
+    private readonly BandwidthLimiter _downloadLimiter;
+    public GoogleDriveApi(SettingsStore store)
+    {
+        _store = store;
+        Usage = new UsageTracker(store.StorageFolder);
+        _uploadLimiter = new BandwidthLimiter(() => _store.Data.UploadLimitKiBps);
+        _downloadLimiter = new BandwidthLimiter(() => _store.Data.DownloadLimitKiBps);
+    }
 
     public bool IsSignedIn => _store.GetToken()?.RefreshToken?.Length > 0;
     public Action<TransferProgress>? TransferChanged { get; set; }
@@ -326,7 +334,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
         var meter = new TransferMeter(TransferChanged, TransferDirection.Upload, name, info.Length);
         try
         {
-            using var meteredFile = new MeteredReadStream(file, meter);
+            using var meteredFile = new MeteredReadStream(file, meter, _uploadLimiter);
             using var payload = new StreamContent(meteredFile, 1024 * 1024);
             payload.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
             payload.Headers.ContentLength = info.Length;
@@ -402,6 +410,7 @@ internal sealed class GoogleDriveApi : ICloudDriveApi, IDisposable
             int count;
             while ((count = await remote.ReadAsync(buffer, ct)) > 0)
             {
+                await _downloadLimiter.ThrottleAsync(count, ct);
                 await local.WriteAsync(buffer.AsMemory(0, count), ct);
                 meter.Add(count);
             }

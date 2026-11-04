@@ -105,11 +105,13 @@ internal sealed class MeteredReadStream : Stream
 {
     private readonly Stream _inner;
     private readonly TransferMeter _meter;
+    private readonly BandwidthLimiter? _limiter;
 
-    public MeteredReadStream(Stream inner, TransferMeter meter)
+    public MeteredReadStream(Stream inner, TransferMeter meter, BandwidthLimiter? limiter = null)
     {
         _inner = inner;
         _meter = meter;
+        _limiter = limiter;
     }
 
     public override bool CanRead => _inner.CanRead;
@@ -125,6 +127,7 @@ internal sealed class MeteredReadStream : Stream
     public override int Read(byte[] buffer, int offset, int count)
     {
         int read = _inner.Read(buffer, offset, count);
+        _limiter?.Throttle(read);
         _meter.Add(read);
         return read;
     }
@@ -132,6 +135,7 @@ internal sealed class MeteredReadStream : Stream
     public override int Read(Span<byte> buffer)
     {
         int read = _inner.Read(buffer);
+        _limiter?.Throttle(read);
         _meter.Add(read);
         return read;
     }
@@ -140,6 +144,7 @@ internal sealed class MeteredReadStream : Stream
                                               CancellationToken cancellationToken)
     {
         int read = await _inner.ReadAsync(buffer.AsMemory(offset, count), cancellationToken);
+        if (_limiter is not null) await _limiter.ThrottleAsync(read, cancellationToken);
         _meter.Add(read);
         return read;
     }
@@ -148,6 +153,7 @@ internal sealed class MeteredReadStream : Stream
                                                    CancellationToken cancellationToken = default)
     {
         int read = await _inner.ReadAsync(buffer, cancellationToken);
+        if (_limiter is not null) await _limiter.ThrottleAsync(read, cancellationToken);
         _meter.Add(read);
         return read;
     }
