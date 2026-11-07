@@ -70,6 +70,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'TEM_CHAN_REGRESSION_FAILED' }
           node tests/v1.8.4-printer-selection.cjs
           if ($LASTEXITCODE -ne 0) { throw 'DYNAMIC_PRINTER_REGRESSION_FAILED' }
+      - name: Validate SKU parser and pagination regressions
+        shell: pwsh
+        run: |
+          $raw = Get-Content 'WmsSkuJs.cs' -Raw
+          $start = $raw.IndexOf('"""')
+          $end = $raw.LastIndexOf('"""')
+          if ($start -lt 0 -or $end -le $start) { throw 'SKU_JS_MISSING' }
+          $code = $raw.Substring($start + 3, $end - $start - 3)
+          $code | Set-Content "$env:RUNNER_TEMP/wms-sku-check.js" -Encoding utf8
+          node --check "$env:RUNNER_TEMP/wms-sku-check.js"
+          if ($LASTEXITCODE -ne 0) { throw 'SKU_JS_SYNTAX_ERROR' }
+          node tests/v1.8.15-sku-watch.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'SKU_REGRESSION_FAILED' }
       - name: Session clearing and safe recorder regressions
         shell: pwsh
         run: |
