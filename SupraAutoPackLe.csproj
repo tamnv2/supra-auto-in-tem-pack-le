@@ -8,7 +8,7 @@
     <AssemblyName>WmsPackingAssistant</AssemblyName>
     <ApplicationIcon>assets\WmsPackingAssistant.ico</ApplicationIcon>
     <RootNamespace>SupraAutoPackLe</RootNamespace>
-    <Version>1.8.14</Version>
+    <Version>1.8.15</Version>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <AssemblyTitle>WMS Packing &amp; Productivity Assistant</AssemblyTitle>
