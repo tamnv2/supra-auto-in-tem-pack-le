@@ -81,6 +81,12 @@ internal sealed class CartonConfirmationDialog : Form
                     "Hệ thống đang đọc THÔNG TIN CHÍNH. Có thể xác nhận hoặc sửa số kiện.");
                 return;
             }
+            if(audit.state=="EMPTY_WATCH")
+            {
+                AddNotice("CHƯA CÓ SKU CẦN KIỂM TRA",Color.FromArgb(53,76,101),
+                    "Danh sách SKU hiện đang trống. Kiểm tra số kiện thực tế trước khi in.");
+                return;
+            }
             if(audit.state!="OK")
             {
                 AddNotice("CHƯA ĐỌC ĐƯỢC DANH SÁCH SKU",_red,
