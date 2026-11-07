@@ -66,7 +66,7 @@ function fixture({wrongPath=false,badHeaders=false}={}) {
     if(q==='mat-header-cell')return header;
     if(q==='mat-row')return all.slice(page*pageSize,(page+1)*pageSize).map(values=>
       mk({querySelectorAll:q=>q==='mat-cell'
-        ? [String(1),...values].map(v=>mk({innerText:v,textContent:v}))
+        ? [String(1),...values,'24'].map(v=>mk({innerText:v,textContent:v}))
         :[]}));
     return [];
   }});
