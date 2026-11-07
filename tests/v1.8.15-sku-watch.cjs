@@ -45,10 +45,8 @@ function fixture({wrongPath=false,badHeaders=false}={}) {
     getAttribute:key=>key==='aria-selected'?(active?'true':'false'):null,
     click:()=>{active=true;}
   });
-  const select=mk({
-    get innerText(){return String(pageSize);},
-    click:()=>{expanded=true;}
-  });
+  const select=mk({click:()=>{expanded=true;}});
+  Object.defineProperty(select,'innerText',{get:()=>String(pageSize)});
   const option=mk({innerText:'100',click:()=>{pageSize=100;page=0;expanded=false;}});
   const next=mk({click:()=>{page++;}});
   const paginator=mk({querySelector:q=>{
