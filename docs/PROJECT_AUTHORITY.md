@@ -91,3 +91,7 @@ Recorder v2: 66 sự kiện / 71,4 giây, bước quét Tote → đóng gói ch�
 - Đã ghi toàn bộ yêu cầu, quyết định v1.0–v1.5.1, thay đổi, trạng thái bằng chứng, an toàn dữ liệu, tồn đọng và quy trình tiếp nhận ở **[HANDOFF_2026-10-17.md](HANDOFF_2026-10-17.md)**. 
 - Không thay đổi code hoặc phát hành EXE mới trong lần bàn giao tài liệu này. 
 - Cần Owner kiểm thử trên WMS/mạng Office/thiết bị thực tế và gửi ảnh/log đã làm sạch để xác minh; không được suy diễn field PASS chỉ từ CI.
+
+## 07/11/2026 — SKU cần kiểm tra trong In tem chẵn
+
+Xem [V1.8.15_SKU_WATCH_2026-11-07.md](V1.8.15_SKU_WATCH_2026-11-07.md). Owner duyệt cảnh báo ngang, đối chiếu ở THÔNG TIN CHÍNH, đọc 100 dòng/trang, giữ OK · IN TEM được phép bấm. Thử nghiệm WMS thực tế còn phải xác nhận riêng.

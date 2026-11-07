@@ -11,6 +11,7 @@ internal sealed class TemChanPanel : UserControl
 {
     private readonly WmsBrowser _browser;
     private readonly LocalStore _log;
+    private readonly SkuWatchStore _skuWatch;
     private readonly Stopwatch _workClock=new();
     private readonly Action _showBrowser;
     private readonly Action _hideBrowser;
@@ -82,10 +83,10 @@ internal sealed class TemChanPanel : UserControl
     public bool BrowserIsShown {get;set;}
 
     public TemChanPanel(WmsBrowser browser,Action showBrowser,Action hideBrowser,
-        LocalStore log,Action manualReadyAcknowledged)
+        LocalStore log,SkuWatchStore skuWatch,Action manualReadyAcknowledged)
     {
         _browser=browser;_showBrowser=showBrowser;_hideBrowser=hideBrowser;
-        _log=log;_manualReadyAcknowledged=manualReadyAcknowledged;
+        _log=log;_skuWatch=skuWatch;_manualReadyAcknowledged=manualReadyAcknowledged;
         Dock=DockStyle.Fill;BackColor=Color.FromArgb(247,249,252);
         var shell = new TableLayoutPanel { Dock=DockStyle.Fill,Padding=new Padding(24,20,24,20),
             ColumnCount=1,RowCount=5 };
@@ -500,6 +501,28 @@ internal sealed class TemChanPanel : UserControl
             _workClock.ElapsedMilliseconds);
     }
 
+    // Display the audit as soon as it finishes without delaying carton verification
+    // or hiding the operator's three approved buttons. A failed scan stays explicit.
+    private static async Task UpdateSkuPromptAsync(
+        Task<SkuAuditResult> scan,CartonConfirmationDialog prompt)
+    {
+        try
+        {
+            var result=await scan;
+            if(!prompt.IsDisposed)prompt.UpdateSkuAudit(result);
+        }
+        catch(OperationCanceledException)
+        {
+            if(!prompt.IsDisposed)
+                prompt.UpdateSkuAudit(new SkuAuditResult{reason="CANCELLED"});
+        }
+        catch
+        {
+            if(!prompt.IsDisposed)
+                prompt.UpdateSkuAudit(new SkuAuditResult{reason="SKU_SCAN_FAILED"});
+        }
+    }
+
     private async Task RunAsync()
     {
         if(_busy || _uncertain)
@@ -554,6 +577,19 @@ internal sealed class TemChanPanel : UserControl
                 Step("Mở chi tiết SO để đọc trạng thái và Tổng số lượng / Tổng SKU.");
                 if(!_browser.NavigateTemChan(so))
                     throw new TemChanStop("Không mở được trang chi tiết SO.");
+                // Open the second SO detail view now, not after carton validation:
+                // both WMS pages load concurrently in the shared browser profile.
+                Task<SkuAuditResult> skuScan;
+                try
+                {
+                    var watched=_skuWatch.Items().Select(x=>x.SKU).ToArray();
+                    skuScan=_browser.ScanSkuAsync(so,watched,ct);
+                }
+                catch(Exception)
+                {
+                    _log.Trace("SKU","WATCH_LIST_READ","ERROR");
+                    skuScan=Task.FromResult(new SkuAuditResult{reason="WATCH_LIST_UNAVAILABLE"});
+                }
                 var p=await WaitAsync(so,x=>x.statusKnown && x.tabReady && x.skuKnown,
                     "Mở trang chi tiết / đọc trạng thái",30,ct);
                 if(!p.statusValid)
@@ -624,6 +660,9 @@ internal sealed class TemChanPanel : UserControl
                 {
                     using var prompt=new CartonConfirmationDialog(
                         heading,countText,instructions,canPrint);
+                    // Scan completion updates the horizontal warning inside this
+                    // modal. Operator can press OK even with a matched SKU.
+                    _=UpdateSkuPromptAsync(skuScan,prompt);
                     prompt.ShowDialog(this);
                     ct.ThrowIfCancellationRequested();
                     if(prompt.Decision==CartonDecision.Exit)

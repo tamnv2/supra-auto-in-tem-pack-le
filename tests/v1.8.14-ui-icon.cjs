@@ -6,7 +6,7 @@ const even = fs.readFileSync('TemChanPanel.cs','utf8');
 const browser = fs.readFileSync('WmsBrowser.cs','utf8');
 const proj = fs.readFileSync('SupraAutoPackLe.csproj','utf8');
 const icon = fs.readFileSync('tools/Build-WmsIcon.ps1','utf8');
-assert.match(proj,/<Version>1\.8\.14<\/Version>/);
+assert.match(proj,/<Version>1\.8\.15<\/Version>/);
 assert.match(proj,/<ApplicationIcon>assets\\WmsPackingAssistant\.ico<\/ApplicationIcon>/);
 assert.match(proj,/BuildWmsIcon|BuildWmsAssistantIcon/);
 assert.match(proj,/BeforeTargets="PrepareForBuild"/);

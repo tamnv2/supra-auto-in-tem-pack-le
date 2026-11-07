@@ -98,6 +98,33 @@ internal sealed class TemChanPeek
     public string totalRaw {get;set;}="";
 }
 
+internal sealed class SkuWatchMatch
+{
+    public string sku {get;set;}="";
+    public string productName {get;set;}="";
+    public string pcb {get;set;}="";
+    public string orderedQuantity {get;set;}="";
+    public string baseUnit {get;set;}="";
+}
+internal sealed class SkuPagePeek
+{
+    public bool ok {get;set;}
+    public string reason {get;set;}="";
+    public int rows {get;set;}
+    public int start {get;set;}
+    public int end {get;set;}
+    public int total {get;set;}
+    public int pageSize {get;set;}
+    public bool last {get;set;}
+    public List<SkuWatchMatch> matches {get;set;}=[];
+}
+internal sealed class SkuAuditResult
+{
+    public string state {get;set;}="ERROR";
+    public string reason {get;set;}="";
+    public int totalRows {get;set;}
+    public List<SkuWatchMatch> matches {get;set;}=[];
+}
 internal sealed class HandoverPeek
 {
     public bool ok {get;set;}
@@ -302,7 +329,7 @@ internal sealed class WmsBrowser : UserControl
         _lastTemChanRouteAt=DateTime.MinValue;
         _startupRouting=!temChan;
         _startupRedirects=0;
-        _printPage.Text=temChan?"WMS · IN TEM":"WMS · ĐÓNG GÓI";
+        _printPage.Text=temChan?"WMS · KIỆN HÀNG":"WMS · ĐÓNG GÓI";
         // Keep the existing loose-packing browser area effectively unchanged.
         _webPages.Appearance=temChan?TabAppearance.Normal:TabAppearance.FlatButtons;
         _webPages.SizeMode=temChan?TabSizeMode.Normal:TabSizeMode.Fixed;
@@ -311,11 +338,14 @@ internal sealed class WmsBrowser : UserControl
         {
             if(!_webPages.TabPages.Contains(_correctionPage))
                 _webPages.TabPages.Add(_correctionPage);
+            if(!_webPages.TabPages.Contains(_skuPage))
+                _webPages.TabPages.Add(_skuPage);
         }
         else
         {
             _webPages.SelectedTab=_printPage;
             _webPages.TabPages.Remove(_correctionPage);
+            _webPages.TabPages.Remove(_skuPage);
         }
         if(Ready && _view.CoreWebView2 is not null)
             _view.CoreWebView2.Navigate(temChan ? TemChanList : Target);
@@ -406,6 +436,182 @@ internal sealed class WmsBrowser : UserControl
             return false;
         }
     }
+
+    private async Task<CoreWebView2> EnsureSkuViewAsync()
+    {
+        if(_skuReady && _skuView.CoreWebView2 is not null)
+            return _skuView.CoreWebView2;
+        if(!_temChanMode || !Ready || _sharedEnvironment is null)
+            throw new InvalidOperationException("SKU_BROWSER_NOT_READY");
+        if(!_webPages.TabPages.Contains(_skuPage))_webPages.TabPages.Add(_skuPage);
+        var previous=_webPages.SelectedTab;
+        try
+        {
+            // On the first SO only, create the native browser handle. Afterwards
+            // all SKU reads are hidden and independent of the printing WMS view.
+            _webPages.SelectedTab=_skuPage;
+            _ = _skuView.Handle;
+            var options=_sharedEnvironment.CreateCoreWebView2ControllerOptions();
+            options.IsInPrivateModeEnabled=false;
+            await _skuView.EnsureCoreWebView2Async(_sharedEnvironment,options);
+            var core=_skuView.CoreWebView2;
+            core.Settings.AreDevToolsEnabled=false;
+            core.Settings.AreDefaultContextMenusEnabled=false;
+            core.Settings.IsPasswordAutosaveEnabled=true;
+            core.Settings.IsGeneralAutofillEnabled=false;
+            core.Settings.IsWebMessageEnabled=false;
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(WmsSkuJs.Script);
+            core.NavigationStarting+=(_,e)=>{
+                if(!AllowedUrl(e.Uri))
+                {
+                    e.Cancel=true;
+                    _storage.Trace("SKU","NAVIGATION_BLOCKED","BLOCKED");
+                }
+            };
+            core.ProcessFailed+=(_,_)=>{
+                _skuReady=false;
+                _storage.Trace("SKU","PROCESS_FAILED","ERROR");
+            };
+            core.NewWindowRequested+=(_,e)=>{e.Handled=true;};
+            _skuReady=true;
+            _storage.Trace("SKU","READER_READY","DONE");
+            return core;
+        }
+        finally
+        {
+            if(!IsDisposed && previous is not null && _webPages.TabPages.Contains(previous))
+                _webPages.SelectedTab=previous;
+            else if(!IsDisposed)_webPages.SelectedTab=_printPage;
+        }
+    }
+
+    /// <summary>Read-only WMS DOM scan; runs concurrently with the print-tab
+    /// workflow, never accessing cookies, APIs or web requests.</summary>
+    public async Task<SkuAuditResult> ScanSkuAsync(
+        string so,IReadOnlyCollection<string> watched,CancellationToken ct)
+    {
+        var result=new SkuAuditResult();
+        if(!_temChanMode || !Ready ||
+           !System.Text.RegularExpressions.Regex.IsMatch(so,@"^[A-Z0-9_-]{5,50}$"))
+        {
+            result.reason="SKU_BROWSER_NOT_READY";return result;
+        }
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            var core=await EnsureSkuViewAsync();
+            core.Navigate("https://wms-supra.winmart.vn/sft3/app/saleorder/details/"+
+                Uri.EscapeDataString(so)+"?PickType=PickOrder");
+            if(watched.Count==0)
+            {
+                // Opening the third SO tab is still required, but an empty watch
+                // list needs no DOM traversal or pagination to find matches.
+                result.state="EMPTY_WATCH";
+                result.reason="WATCH_LIST_EMPTY";
+                return result;
+            }
+            var query=JsonSerializer.Serialize(watched.ToArray());
+            var serializedSo=JsonSerializer.Serialize(so);
+            var watch=System.Diagnostics.Stopwatch.StartNew();
+            var seenEnd=0;
+            var pages=0;
+            var matches=new List<SkuWatchMatch>();
+            string lastReason="LOADING";
+            while(watch.Elapsed<TimeSpan.FromSeconds(18) && pages<80)
+            {
+                ct.ThrowIfCancellationRequested();
+                if(!_skuReady || core!=_skuView.CoreWebView2)
+                    throw new InvalidOperationException("SKU_READER_RESTARTED");
+                string raw=await core.ExecuteScriptAsync(
+                    "window.__supraSkuAuditV1?.peek("+serializedSo+","+query+
+                    ") || {ok:false,reason:'SCRIPT_MISSING'}");
+                var peek=JsonSerializer.Deserialize<SkuPagePeek>(raw);
+                if(peek?.ok!=true)
+                {
+                    lastReason=peek?.reason??"SKU_PEEK_INVALID";
+                    if(lastReason=="SCRIPT_MISSING")
+                        await core.ExecuteScriptAsync(WmsSkuJs.Script);
+                    else if(lastReason=="MAIN_TAB_NOT_SELECTED")
+                        await core.ExecuteScriptAsync(
+                            "window.__supraSkuAuditV1?.activate("+serializedSo+")");
+                    else if(lastReason=="SKU_COLUMNS_CHANGED" || lastReason=="PAGINATION_INVALID" ||
+                            lastReason=="SKU_ROW_INCOMPLETE" || lastReason=="SKU_CELL_EMPTY" ||
+                            lastReason=="WRONG_SO_PAGE")
+                    {
+                        if(lastReason!="WRONG_SO_PAGE" || watch.ElapsedMilliseconds>6000)
+                            break;
+                    }
+                    await Task.Delay(140,ct);
+                    continue;
+                }
+                if(peek.pageSize!=100)
+                {
+                    lastReason="SELECTING_PAGE_100";
+                    await core.ExecuteScriptAsync(
+                        "window.__supraSkuAuditV1?.page100("+serializedSo+")");
+                    await Task.Delay(140,ct);
+                    continue;
+                }
+                // Never convert a not-yet-loaded or malformed page to "no match".
+                if(peek.total<1 || peek.start<1 || peek.end<peek.start)
+                {
+                    lastReason="EMPTY_OR_INCOMPLETE_TABLE";
+                    await Task.Delay(140,ct);
+                    continue;
+                }
+                if(peek.start<=seenEnd)
+                {
+                    lastReason="PAGINATION_STALE";
+                    await Task.Delay(140,ct);
+                    continue;
+                }
+                if(peek.start!=seenEnd+1 || peek.rows!=peek.end-peek.start+1)
+                {
+                    lastReason="PAGE_ROWS_MISMATCH";
+                    break;
+                }
+                seenEnd=peek.end;
+                pages++;
+                matches.AddRange(peek.matches);
+                if(peek.last && seenEnd==peek.total)
+                {
+                    result.state="OK";
+                    result.reason="COMPLETE";
+                    result.totalRows=seenEnd;
+                    result.matches=matches;
+                    _storage.Trace("SKU","SO_SCAN","DONE",watch.ElapsedMilliseconds,
+                        "ROWS="+seenEnd+";MATCHES="+matches.Count+";PAGES="+pages);
+                    return result;
+                }
+                lastReason="NEXT_PAGE";
+                var moved=await core.ExecuteScriptAsync(
+                    "window.__supraSkuAuditV1?.next("+serializedSo+")");
+                var action=JsonSerializer.Deserialize<BrowserResult>(moved);
+                if(action?.ok!=true)
+                {
+                    lastReason=action?.reason??"NEXT_FAILED";
+                    break;
+                }
+                await Task.Delay(140,ct);
+            }
+            result.reason=lastReason=="LOADING"?"SKU_TIMEOUT":lastReason;
+            result.matches=[]; // Partial pages cannot be presented as complete.
+            _storage.Trace("SKU","SO_SCAN","ERROR",watch.ElapsedMilliseconds);
+            return result;
+        }
+        catch(OperationCanceledException)
+        {
+            result.reason="CANCELLED";
+            return result;
+        }
+        catch(Exception ex)
+        {
+            _storage.TraceException("SKU","SO_SCAN_EXCEPTION",ex);
+            result.reason="SKU_READER_FAILED";
+            return result;
+        }
+    }
+
     public async Task<HandoverPeek?> HandoverPeekAsync(string so,int quantity)
     {
         if(!_temChanMode || !_correctionReady || _correctionView.CoreWebView2 is null)
@@ -503,6 +709,9 @@ internal sealed class WmsBrowser : UserControl
     private readonly TabPage _printPage=new("WMS · IN TEM");
     private readonly TabPage _correctionPage=new("WMS · SỬA KIỆN");
     private readonly WebView2 _correctionView=new(){Dock=DockStyle.Fill};
+    private readonly TabPage _skuPage=new("WMS · THÔNG TIN CHÍNH");
+    private readonly WebView2 _skuView=new(){Dock=DockStyle.Fill};
+    private bool _skuReady;
     private CoreWebView2Environment? _sharedEnvironment;
     private bool _correctionReady;
     public event Action? CorrectionFinished;
@@ -535,6 +744,7 @@ internal sealed class WmsBrowser : UserControl
         correctionShell.Controls.Add(correctionDone,0,0);
         correctionShell.Controls.Add(_correctionView,0,1);
         _correctionPage.Controls.Add(correctionShell);
+        _skuPage.Controls.Add(_skuView);
         _webPages.TabPages.Add(_printPage);
         Controls.Add(_webPages);
     }
@@ -549,6 +759,7 @@ internal sealed class WmsBrowser : UserControl
         // A persistent browser profile retains site sessions and passwords by user choice.
         // This application never reads, logs or exports the profile contents.
         _correctionView.Dispose();
+        _skuView.Dispose();
         _view.Dispose();
     }
     public async Task InitializeAsync()

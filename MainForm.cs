@@ -8,6 +8,7 @@ namespace SupraAutoPackLe;
 public sealed class MainForm : Form
 {
     private readonly LocalStore _store=new();
+    private readonly SkuWatchStore _skuWatch;
     private readonly WmsBrowser _browser;
     private readonly Stopwatch _watch=new();
     private readonly TextBox _tote=new(){Width=320,Font=new Font("Segoe UI",19,FontStyle.Bold)};
@@ -26,6 +27,7 @@ public sealed class MainForm : Form
     private readonly TabControl _tabs=new(){Dock=DockStyle.Fill,Font=new Font("Segoe UI",10)};
     private readonly TabPage _operationTab=new("NGHIỆP VỤ");
     private readonly TabPage _temChanTab=new("IN TEM CHẴN");
+    private readonly TabPage _skuWatchTab=new("SKU CẦN KIỂM TRA");
     private readonly TabPage _settingsTab=new("CÀI ĐẶT");
     private TemChanPanel? _temChanPanel;
     private bool _temChanMode;
@@ -73,6 +75,7 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
+        _skuWatch=new SkuWatchStore(_store.Root);
         _people=_store.LoadPeople();
         _browser=new WmsBrowser(_store,ShowBrowser);
         _browser.CorrectionFinished+=()=>_temChanPanel?.ConfirmCorrectionFinished();
@@ -411,11 +414,14 @@ public sealed class MainForm : Form
                 _tabs.TabPages.Remove(_productionTab);
                 if(!_tabs.TabPages.Contains(_temChanTab))
                     _tabs.TabPages.Insert(0,_temChanTab);
+                if(!_tabs.TabPages.Contains(_skuWatchTab))
+                    _tabs.TabPages.Add(_skuWatchTab);
                 _tabs.SelectedTab=_temChanTab;
             }
             else
             {
                 _tabs.TabPages.Remove(_temChanTab);
+                _tabs.TabPages.Remove(_skuWatchTab);
                 if(!_tabs.TabPages.Contains(_operationTab))
                     _tabs.TabPages.Insert(0,_operationTab);
                 if(!_tabs.TabPages.Contains(_productionTab))
@@ -600,8 +606,9 @@ public sealed class MainForm : Form
         _productionTab.Controls.Add(BuildProductionTab());
         _aboutTab.Controls.Add(BuildAboutTab());
         _temChanPanel=new TemChanPanel(_browser,ShowBrowser,HideBrowser,_store,
-            OnEvenManualReadyAcknowledged);
+            _skuWatch,OnEvenManualReadyAcknowledged);
         _temChanTab.Controls.Add(_temChanPanel);
+        _skuWatchTab.Controls.Add(new SkuWatchPanel(_skuWatch,_store));
         _settingsTab.Controls.Add(BuildOperationSettings());
         _tabs.TabPages.AddRange([_operationTab,_webTab,_productionTab,_aboutTab,_settingsTab]);
         _tabs.SelectedTab=_webTab; // Visible on the very first frame, before async login begins.
@@ -612,7 +619,8 @@ public sealed class MainForm : Form
                 "TAB="+(_tabs.SelectedTab==_temChanTab?1:
                     _tabs.SelectedTab==_operationTab?2:
                     _tabs.SelectedTab==_webTab?3:
-                    _tabs.SelectedTab==_settingsTab?4:5));
+                    _tabs.SelectedTab==_settingsTab?4:
+                    _tabs.SelectedTab==_skuWatchTab?6:5));
             UpdateBrowserToggle();
             if(_tabs.SelectedTab==_productionTab)
                 RefreshProduction(_store.FilterHistory(DateTime.Today,DateTime.Today));
