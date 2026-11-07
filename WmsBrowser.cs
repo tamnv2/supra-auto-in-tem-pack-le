@@ -98,6 +98,33 @@ internal sealed class TemChanPeek
     public string totalRaw {get;set;}="";
 }
 
+internal sealed class SkuWatchMatch
+{
+    public string sku {get;set;}="";
+    public string productName {get;set;}="";
+    public string pcb {get;set;}="";
+    public string orderedQuantity {get;set;}="";
+    public string baseUnit {get;set;}="";
+}
+internal sealed class SkuPagePeek
+{
+    public bool ok {get;set;}
+    public string reason {get;set;}="";
+    public int rows {get;set;}
+    public int start {get;set;}
+    public int end {get;set;}
+    public int total {get;set;}
+    public int pageSize {get;set;}
+    public bool last {get;set;}
+    public List<SkuWatchMatch> matches {get;set;}=[];
+}
+internal sealed class SkuAuditResult
+{
+    public string state {get;set;}="ERROR";
+    public string reason {get;set;}="";
+    public int totalRows {get;set;}
+    public List<SkuWatchMatch> matches {get;set;}=[];
+}
 internal sealed class HandoverPeek
 {
     public bool ok {get;set;}
@@ -302,7 +329,7 @@ internal sealed class WmsBrowser : UserControl
         _lastTemChanRouteAt=DateTime.MinValue;
         _startupRouting=!temChan;
         _startupRedirects=0;
-        _printPage.Text=temChan?"WMS · IN TEM":"WMS · ĐÓNG GÓI";
+        _printPage.Text=temChan?"WMS · KIỆN HÀNG":"WMS · ĐÓNG GÓI";
         // Keep the existing loose-packing browser area effectively unchanged.
         _webPages.Appearance=temChan?TabAppearance.Normal:TabAppearance.FlatButtons;
         _webPages.SizeMode=temChan?TabSizeMode.Normal:TabSizeMode.Fixed;
@@ -311,11 +338,14 @@ internal sealed class WmsBrowser : UserControl
         {
             if(!_webPages.TabPages.Contains(_correctionPage))
                 _webPages.TabPages.Add(_correctionPage);
+            if(!_webPages.TabPages.Contains(_skuPage))
+                _webPages.TabPages.Add(_skuPage);
         }
         else
         {
             _webPages.SelectedTab=_printPage;
             _webPages.TabPages.Remove(_correctionPage);
+            _webPages.TabPages.Remove(_skuPage);
         }
         if(Ready && _view.CoreWebView2 is not null)
             _view.CoreWebView2.Navigate(temChan ? TemChanList : Target);
@@ -503,6 +533,9 @@ internal sealed class WmsBrowser : UserControl
     private readonly TabPage _printPage=new("WMS · IN TEM");
     private readonly TabPage _correctionPage=new("WMS · SỬA KIỆN");
     private readonly WebView2 _correctionView=new(){Dock=DockStyle.Fill};
+    private readonly TabPage _skuPage=new("WMS · THÔNG TIN CHÍNH");
+    private readonly WebView2 _skuView=new(){Dock=DockStyle.Fill};
+    private bool _skuReady;
     private CoreWebView2Environment? _sharedEnvironment;
     private bool _correctionReady;
     public event Action? CorrectionFinished;
@@ -535,6 +568,7 @@ internal sealed class WmsBrowser : UserControl
         correctionShell.Controls.Add(correctionDone,0,0);
         correctionShell.Controls.Add(_correctionView,0,1);
         _correctionPage.Controls.Add(correctionShell);
+        _skuPage.Controls.Add(_skuView);
         _webPages.TabPages.Add(_printPage);
         Controls.Add(_webPages);
     }
@@ -549,6 +583,7 @@ internal sealed class WmsBrowser : UserControl
         // A persistent browser profile retains site sessions and passwords by user choice.
         // This application never reads, logs or exports the profile contents.
         _correctionView.Dispose();
+        _skuView.Dispose();
         _view.Dispose();
     }
     public async Task InitializeAsync()
