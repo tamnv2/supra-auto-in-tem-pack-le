@@ -502,6 +502,14 @@ internal sealed class WmsBrowser : UserControl
             var core=await EnsureSkuViewAsync();
             core.Navigate("https://wms-supra.winmart.vn/sft3/app/saleorder/details/"+
                 Uri.EscapeDataString(so)+"?PickType=PickOrder");
+            if(watched.Count==0)
+            {
+                // Opening the third SO tab is still required, but an empty watch
+                // list needs no DOM traversal or pagination to find matches.
+                result.state="EMPTY_WATCH";
+                result.reason="WATCH_LIST_EMPTY";
+                return result;
+            }
             var query=JsonSerializer.Serialize(watched.ToArray());
             var serializedSo=JsonSerializer.Serialize(so);
             var watch=System.Diagnostics.Stopwatch.StartNew();
